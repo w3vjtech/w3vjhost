@@ -1,13 +1,13 @@
 import { debounce } from './helpers';
 
 // Attach event listeners to FTP account "Username" and "Path" fields to update their hints
-export default function handleFtpAccountHints() {
-	addHintListeners('.js-ftp-user', updateFtpUsernameHint);
-	addHintListeners('.js-ftp-path', updateFtpPathHint);
+export default function handleFtpAccountHints(root = document) {
+	addHintListeners(root, '.js-ftp-user', updateFtpUsernameHint);
+	addHintListeners(root, '.js-ftp-path', updateFtpPathHint);
 }
 
-function addHintListeners(selector, updateHintFunction) {
-	document.querySelectorAll(selector).forEach((inputElement) => {
+function addHintListeners(root, selector, updateHintFunction) {
+	root.querySelectorAll(selector).forEach((inputElement) => {
 		const currentValue = inputElement.value.trim();
 
 		if (currentValue !== '') {

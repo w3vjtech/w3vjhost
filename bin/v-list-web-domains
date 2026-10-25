@@ -29,6 +29,8 @@ json_list() {
 	objects=$(grep DOMAIN $USER_DATA/web.conf | wc -l)
 	echo "{"
 	while read str; do
+		# Application keys only exist on some lines, don't carry them over
+		unset APP_TEMPLATE APP_ENTRY APP_STATUS
 		parse_object_kv_list "$str"
 		# Set correct document root path
 		if [ -n "$CUSTOM_DOCROOT" ]; then
@@ -55,6 +57,9 @@ json_list() {
         "BACKEND": "'$BACKEND'",
         "PROXY": "'$PROXY'",
         "PROXY_EXT": "'$PROXY_EXT'",
+        "APP_TEMPLATE": "'$APP_TEMPLATE'",
+        "APP_ENTRY": "'$APP_ENTRY'",
+        "APP_STATUS": "'$APP_STATUS'",
         "SUSPENDED": "'$SUSPENDED'",
         "TIME": "'$TIME'",
         "DATE": "'$DATE'"

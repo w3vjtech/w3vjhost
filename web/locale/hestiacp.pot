@@ -26,7 +26,7 @@ msgstr ""
 #: ../../web/unsuspend/dns/index.php:44 ../../web/unsuspend/mail/index.php:18
 #: ../../web/unsuspend/mail/index.php:45 ../../web/schedule/backup/index.php:17
 #: ../../web/schedule/restore/index.php:70 ../../web/bulk/restore/index.php:78
-msgid "Error: Hestia did not return any output."
+msgid "Error: W3VJHOST did not return any output."
 msgstr ""
 
 #: ../../web/schedule/backup/incremental/index.php:17
@@ -3050,6 +3050,143 @@ msgstr[1] ""
 msgid "Add Database"
 msgstr ""
 
+#: ../../web/templates/pages/list_db.php
+#: ../../web/templates/pages/add_nosql.php
+msgid "Add NoSQL Database"
+msgstr ""
+
+#: ../../web/templates/pages/add_nosql.php
+msgid "Create Database"
+msgstr ""
+
+#: ../../web/templates/pages/list_db.php
+msgid "NoSQL Databases"
+msgstr ""
+
+#: ../../web/list/db/index.php ../../web/add/nosql/index.php
+msgid "Unable to load NoSQL database information."
+msgstr ""
+
+#: ../../web/add/nosql/index.php
+msgid "Please select an installed NoSQL service."
+msgstr ""
+
+#: ../../web/add/nosql/index.php
+msgid "Use a lowercase name starting with a letter; letters, numbers, and underscores only."
+msgstr ""
+
+#: ../../web/add/nosql/index.php
+msgid "The database was created, but its one-time password could not be displayed. Reset the password to obtain a new one."
+msgstr ""
+
+#: ../../web/add/nosql/index.php
+msgid "MongoDB and Redis are not installed or available on this server."
+msgstr ""
+
+#: ../../web/templates/pages/add_nosql.php
+msgid "MongoDB databases receive a dedicated read/write user. Redis entries are isolated key namespaces protected by Redis ACLs, not separate Redis database indexes."
+msgstr ""
+
+#: ../../web/templates/pages/add_nosql.php
+msgid "Use a lowercase letter first, followed by lowercase letters, numbers, or underscores."
+msgstr ""
+
+#: ../../web/templates/pages/add_nosql.php
+msgid "NoSQL databases are not currently included in W3VJHOST user backups."
+msgstr ""
+
+#: ../../web/templates/pages/list_db.php
+msgid "MongoDB users are restricted to read and write one database. Redis users are restricted to their key namespace. These entries are not included in W3VJHOST user backups."
+msgstr ""
+
+#: ../../web/templates/pages/list_db.php
+msgid "These services listen on localhost. Applications on another server need an SSH tunnel to connect."
+msgstr ""
+
+#: ../../web/templates/pages/list_db.php
+#: ../../web/templates/pages/add_nosql.php
+msgid "NoSQL storage is not included in W3VJHOST per-user disk usage or quotas; Redis memory limits are server-wide."
+msgstr ""
+
+#: ../../web/templates/pages/list_db.php
+msgid "Only databases and Redis namespaces created through W3VJHOST appear here; existing service data is not imported automatically."
+msgstr ""
+
+#: ../../web/templates/pages/list_db.php
+#: ../../web/templates/pages/add_nosql.php
+msgid "Redis needs an administrator to enable persistent ACL storage before Redis namespaces can be managed. This restarts Redis."
+msgstr ""
+
+#: ../../web/templates/pages/list_db.php
+msgid "Save this %s password now. It is shown only once."
+msgstr ""
+
+#: ../../web/templates/pages/list_db.php
+msgid "Key prefix"
+msgstr ""
+
+#: ../../web/templates/pages/list_db.php
+msgid "One-time password"
+msgstr ""
+
+#: ../../web/templates/pages/list_db.php
+msgid "No managed NoSQL databases."
+msgstr ""
+
+#: ../../web/templates/pages/list_db.php
+msgid "Database or key namespace"
+msgstr ""
+
+#: ../../web/templates/pages/list_db.php
+msgid "Read/write on this database"
+msgstr ""
+
+#: ../../web/templates/pages/list_db.php
+msgid "Read/write in this key namespace"
+msgstr ""
+
+#: ../../web/templates/pages/list_db.php
+msgid "Reset Password"
+msgstr ""
+
+#: ../../web/templates/pages/list_db.php
+msgid "Delete NoSQL database or namespace %s? All its data and credentials will be removed."
+msgstr ""
+
+#: ../../web/templates/pages/list_db.php
+msgid "Service unavailable"
+msgstr ""
+
+#: ../../web/reset/nosql/index.php ../../web/delete/nosql/index.php
+msgid "Invalid NoSQL database."
+msgstr ""
+
+#: ../../web/reset/nosql/index.php
+msgid "The password was reset, but its one-time value could not be displayed. Reset it again to obtain a new one."
+msgstr ""
+
+#: ../../web/reset/nosql/index.php
+msgid "NoSQL database password has been reset."
+msgstr ""
+
+#: ../../web/delete/nosql/index.php
+msgid "NoSQL database has been deleted."
+msgstr ""
+
+#: ../../web/templates/pages/list_db.php
+#, php-format
+msgid "%d SQL database"
+msgid_plural "%d SQL databases"
+msgstr[0] ""
+msgstr[1] ""
+
+#: ../../web/templates/pages/list_db.php
+#, php-format
+msgid "%d NoSQL entry"
+msgid_plural "%d NoSQL entries"
+msgstr[0] ""
+msgstr[1] ""
+
 #: ../../web/templates/pages/list_db.php:74
 #: ../../web/templates/pages/list_user.php:42
 #: ../../web/templates/pages/list_mail.php:40
@@ -5031,15 +5168,15 @@ msgid "NGINX cache has been purged successfully."
 msgstr ""
 
 #: ../../bin/v-list-sys-hestia-updates:110
-msgid "Hestia core package"
+msgid "W3VJHOST core package"
 msgstr ""
 
 #: ../../bin/v-list-sys-hestia-updates:125
-msgid "Hestia internal php interpreter"
+msgid "W3VJHOST internal php interpreter"
 msgstr ""
 
 #: ../../bin/v-list-sys-hestia-updates:141
-msgid "Hestia internal web server"
+msgid "W3VJHOST internal web server"
 msgstr ""
 
 #: ../../bin/v-list-sys-services:167

@@ -71,6 +71,7 @@ if [ -n "$PROXY_SYSTEM" ]; then
 		| grep ".tpl$" \
 		| cut -f1 -d . \
 		| grep -v proxy_ip \
+		| grep -vx app-proxy \
 		| sort -u)
 fi
 

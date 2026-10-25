@@ -1,0 +1,30 @@
+#!/bin/bash
+# info: delete all managed NoSQL databases for a user
+# options: USER
+#
+# example: v-delete-nosql-databases admin
+
+user=$1
+
+source /etc/hestiacp/hestia.conf
+source "$HESTIA/func/main.sh"
+source "$HESTIA/func/nosql.sh"
+source_conf "$HESTIA/conf/hestia.conf"
+
+check_args '1' "$#" 'USER'
+is_format_valid 'user'
+is_object_valid 'user' 'USER' "$user"
+check_hestia_demo_mode
+USER_DATA="$HESTIA/data/users/$user"
+
+for type in mongodb redis; do
+	file=$(nosql_record_file "$type")
+	[ -f "$file" ] || continue
+	while IFS= read -r record; do
+		[ -n "$record" ] || continue
+		parse_object_kv_list "$record"
+		"$BIN/v-delete-nosql-database" "$user" "$type" "$NAME"
+		check_result "$?" "failed to delete $type database $NAME for $user"
+	done < "$file"
+done
+exit

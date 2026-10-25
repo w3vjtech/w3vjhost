@@ -1,0 +1,95 @@
+#!/bin/bash
+# info: install dependencies of a web domain application
+# options: USER DOMAIN
+#
+# example: v-update-web-domain-app-deps admin example.com
+#
+# Node.js: npm ci (or npm install) when package.json exists.
+# Python: creates .venv with the selected Python version, installs gunicorn
+# and requirements.txt. Everything runs as USER, never as root.
+
+#----------------------------------------------------------#
+#                Variables & Functions                     #
+#----------------------------------------------------------#
+
+# Argument definition
+user=$1
+domain=$2
+
+# Includes
+# shellcheck source=/etc/hestiacp/hestia.conf
+source /etc/hestiacp/hestia.conf
+# shellcheck source=/usr/local/hestia/func/main.sh
+source $HESTIA/func/main.sh
+# shellcheck source=/usr/local/hestia/func/domain.sh
+source $HESTIA/func/domain.sh
+# shellcheck source=/usr/local/hestia/func/runtime.sh
+source $HESTIA/func/runtime.sh
+# load config file
+source_conf "$HESTIA/conf/hestia.conf"
+
+# Additional argument formatting
+format_domain
+format_domain_idn
+
+#----------------------------------------------------------#
+#                    Verifications                         #
+#----------------------------------------------------------#
+
+check_args '2' "$#" 'USER DOMAIN'
+is_format_valid 'user' 'domain'
+is_object_valid 'user' 'USER' "$user"
+is_object_unsuspended 'user' 'USER' "$user"
+is_object_valid 'web' 'DOMAIN' "$domain"
+is_object_unsuspended 'web' 'DOMAIN' "$domain"
+app_template=$(get_web_app_value 'APP_TEMPLATE')
+if [ -z "$app_template" ]; then
+	check_result "$E_NOTEXIST" "$domain doesn't run an application"
+fi
+is_app_template_valid "$app_template"
+prepare_web_app_paths
+is_dir_symlink "$app_dir"
+
+# Perform verification if read-only mode is enabled
+check_hestia_demo_mode
+
+#----------------------------------------------------------#
+#                       Action                             #
+#----------------------------------------------------------#
+
+user_env=(env -C "$app_dir" HOME="$HOMEDIR/$user" PATH="$app_runtime_dir/bin:/usr/local/bin:/usr/bin:/bin")
+
+if [ "$app_runtime" = "nodejs" ]; then
+	if [ -f "$app_dir/package.json" ]; then
+		npm_cmd="install"
+		[ -f "$app_dir/package-lock.json" ] && npm_cmd="ci"
+		user_exec "${user_env[@]}"npm "$npm_cmd" --omit=dev --no-audit --no-fund
+		check_result $? "npm $npm_cmd failed for $domain"
+	fi
+else
+	# Recreate the virtual environment when the Python version changed
+	venv_python="$app_dir/.venv/bin/python3"
+	if [ -x "$venv_python" ] && [[ "$(readlink -f "$venv_python")" != "$(readlink -f "$app_runtime_dir")"/* ]]; then
+		user_exec rm -rf "$app_dir/.venv"
+	fi
+	if [ ! -x "$venv_python" ]; then
+		user_exec "${user_env[@]}""$app_runtime_dir/bin/python3" -m venv .venv
+		check_result $? "Unable to create Python virtual environment for $domain"
+	fi
+	user_exec "${user_env[@]}".venv/bin/pip install --quiet --upgrade pip gunicorn
+	check_result $? "pip install gunicorn failed for $domain"
+	if [ -f "$app_dir/requirements.txt" ]; then
+		user_exec "${user_env[@]}".venv/bin/pip install --quiet -r requirements.txt
+		check_result $? "pip install -r requirements.txt failed for $domain"
+	fi
+fi
+
+#----------------------------------------------------------#
+#                       Hestia                             #
+#----------------------------------------------------------#
+
+# Logging
+$BIN/v-log-action "$user" "Info" "Web" "Application dependencies updated (Domain: $domain)."
+log_event "$OK" "$ARGUMENTS"
+
+exit

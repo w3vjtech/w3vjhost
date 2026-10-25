@@ -1,0 +1,70 @@
+#!/bin/bash
+# info: change default Node.js version server wide
+# options: VERSION
+#
+# example: v-change-sys-nodejs 22
+#
+# Sets the Node.js version used by default for new applications
+# and for node, npm and npx on the command line.
+
+#----------------------------------------------------------#
+#                Variables & Functions                     #
+#----------------------------------------------------------#
+
+# Argument definition
+version=$1
+
+# Includes
+# shellcheck source=/etc/hestiacp/hestia.conf
+source /etc/hestiacp/hestia.conf
+# shellcheck source=/usr/local/hestia/func/main.sh
+source $HESTIA/func/main.sh
+# shellcheck source=/usr/local/hestia/func/runtime.sh
+source $HESTIA/func/runtime.sh
+# load config file
+source_conf "$HESTIA/conf/hestia.conf"
+
+#----------------------------------------------------------#
+#                    Verifications                         #
+#----------------------------------------------------------#
+
+check_args '1' "$#" 'VERSION'
+
+# Verify Node.js version format
+if [[ ! $version =~ ^[0-9]+$ ]]; then
+	echo "The specified Node.js version format is invalid, it should be a major version."
+	echo "Example: 20, 22, 24"
+	exit "$E_INVALID"
+fi
+
+# Check if Node.js version exists
+if ! runtime_versions "$W3VJ_NODEJS_DIR" | grep -qx "$version"; then
+	echo "ERROR: Specified Node.js version is not installed."
+	exit "$E_NOTEXIST"
+fi
+
+# Perform verification if read-only mode is enabled
+check_hestia_demo_mode
+
+#----------------------------------------------------------#
+#                       Action                             #
+#----------------------------------------------------------#
+
+ln -sfn "$W3VJ_NODEJS_DIR/$version" "$W3VJ_NODEJS_DIR/default"
+
+# Link command line tools, never replace binaries installed by other packages
+for bin in node npm npx corepack; do
+	if [ -e "$W3VJ_NODEJS_DIR/default/bin/$bin" ] && { [ -L "/usr/local/bin/$bin" ] || [ ! -e "/usr/local/bin/$bin" ]; }; then
+		ln -sfn "$W3VJ_NODEJS_DIR/default/bin/$bin" "/usr/local/bin/$bin"
+	fi
+done
+
+#----------------------------------------------------------#
+#                       Hestia                             #
+#----------------------------------------------------------#
+
+# Logging
+$BIN/v-log-action "system" "Info" "System" "Default Node.js version changed to $version."
+log_event "$OK" "$ARGUMENTS"
+
+exit

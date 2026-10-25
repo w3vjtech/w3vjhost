@@ -141,6 +141,33 @@ prepare_web_backend() {
 	fi
 }
 
+# Prepare web application (Node.js / Python) listener
+# Must run after prepare_web_backend: the no-php pool still yields a dead backend_lsnr.
+prepare_web_app() {
+	local app_template
+	app_template=$(grep -F "DOMAIN='$domain' " "$USER_DATA/web.conf" 2> /dev/null \
+		| grep -o " APP_TEMPLATE='[^']*'" | cut -f 2 -d \')
+	if [ -n "$app_template" ]; then
+		# One place builds app paths (IDN and long domains), see func/runtime.sh
+		# shellcheck source=/usr/local/hestia/func/runtime.sh
+		[ -z "$W3VJ_SOCKET_DIR" ] && source $HESTIA/func/runtime.sh
+		prepare_web_app_paths
+		backend_lsnr="unix:$app_socket"
+	fi
+}
+
+# Refuse manual template changes on domains running an application,
+# and refuse the app-proxy template on domains without one.
+# Usage: is_web_domain_app_free TEMPLATE
+is_web_domain_app_free() {
+	if grep -F "DOMAIN='$domain' " "$USER_DATA/web.conf" | grep -q " APP_TEMPLATE='[^']"; then
+		check_result "$E_INUSE" "$domain runs an application, use v-change-web-domain-app-tpl or v-delete-web-domain-app"
+	fi
+	if [ "$1" = "app-proxy" ]; then
+		check_result "$E_INVALID" "app-proxy template is managed by v-add-web-domain-app"
+	fi
+}
+
 # Delete web backend
 delete_web_backend() {
 	find -L /etc/php/ -type f -name "$backend_type.conf" -exec rm -f {} \;
@@ -192,6 +219,7 @@ prepare_web_domain_values() {
 	if [ -n "$WEB_BACKEND" ]; then
 		prepare_web_backend "$BACKEND"
 	fi
+	prepare_web_app
 
 	server_alias=''
 	alias_string=''

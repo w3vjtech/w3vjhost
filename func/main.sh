@@ -278,7 +278,12 @@ is_package_full() {
 		DNS_RECORDS) used=$(wc -l $USER_DATA/dns/$domain.conf) ;;
 		MAIL_DOMAINS) used=$(wc -l $USER_DATA/mail.conf) ;;
 		MAIL_ACCOUNTS) used=$(wc -l $USER_DATA/mail/$domain.conf) ;;
-		DATABASES) used=$(wc -l $USER_DATA/db.conf) ;;
+		DATABASES)
+			used=$(
+				cat "$USER_DATA/db.conf" "$USER_DATA/nosql-mongodb.conf" "$USER_DATA/nosql-redis.conf" \
+					2>/dev/null | wc -l
+			)
+			;;
 		CRON_JOBS) used=$(wc -l $USER_DATA/cron.conf) ;;
 	esac
 	used=$(echo "$used" | cut -f 1 -d \ )
@@ -1533,6 +1538,22 @@ is_valid_swap_size() {
 	fi
 }
 
+# Application entry validator: a relative file inside the app dir (server.js)
+# or a Python module:callable (app:app, wsgi:create_app()).
+# It is written into a root-owned systemd unit, so no spaces, %, \, quotes or newlines.
+is_app_entry_format_valid() {
+	if ! [[ "$1" =~ ^[A-Za-z0-9_][A-Za-z0-9_./:()-]{0,127}$ ]] || [[ "$1" == *..* ]]; then
+		check_result "$E_INVALID" "invalid app entry format :: $1"
+	fi
+}
+
+# Application template validator (NODE-22, PY-3_12)
+is_app_template_format_valid() {
+	if ! [[ "$1" =~ ^(NODE-[0-9]{1,3}|PY-[0-9]_[0-9]{1,2})$ ]]; then
+		check_result "$E_INVALID" "invalid app template format :: $1"
+	fi
+}
+
 is_object_name_format_valid() {
 	if ! [[ "$1" =~ ^[-|\ |\.|_[:alnum:]]{0,50}$ ]]; then
 		check_result "$E_INVALID" "invalid $2 format :: $1"
@@ -1666,6 +1687,8 @@ is_format_valid() {
 				account) is_localpart_format_valid "$arg" "$arg_name" '64' ;;
 				action) is_fw_action_format_valid "$arg" ;;
 				active) is_boolean_format_valid "$arg" 'active' ;;
+				app_entry) is_app_entry_format_valid "$arg" ;;
+				app_template) is_app_template_format_valid "$arg" ;;
 				aliases) is_alias_format_valid "$arg" ;;
 				alias) is_alias_format_valid "$arg" ;;
 				antispam) is_boolean_format_valid "$arg" 'antispam' ;;

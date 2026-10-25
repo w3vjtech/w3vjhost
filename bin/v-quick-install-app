@@ -116,7 +116,7 @@ $application
 		foreach ($appInstallers as $appInstaller) {
 			$app = basename(dirname($appInstaller));
 			$hestia = new \Hestia\System\HestiaApp();
-			$domain = "demo.hestiacp.com";
+			$domain = "demo.example.com";
 			if (
 				!file_exists(
 					__DIR__ .
@@ -168,7 +168,7 @@ $application
 				$v_domain .
 				" " .
 				$app .
-				' email="info@hestiacp" password="12346"',
+				' email="info@example.com" password="12346"',
 		);
 		$output->writeln("---------------------------------");
 		$output->writeln("Options for " . $app);

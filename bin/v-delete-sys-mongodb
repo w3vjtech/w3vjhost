@@ -1,0 +1,74 @@
+#!/bin/bash
+# info: delete MongoDB server
+# options: [DELETE_DATA]
+#
+# example: v-delete-sys-mongodb
+# example: v-delete-sys-mongodb yes
+#
+# Removes MongoDB (and Mongo Express, which depends on it). The data in
+# /var/lib/mongodb is kept unless DELETE_DATA is yes.
+
+#----------------------------------------------------------#
+#                Variables & Functions                     #
+#----------------------------------------------------------#
+
+# Argument definition
+delete_data=${1-no}
+
+# Includes
+# shellcheck source=/etc/hestiacp/hestia.conf
+source /etc/hestiacp/hestia.conf
+# shellcheck source=/usr/local/hestia/func/main.sh
+source $HESTIA/func/main.sh
+# load config file
+source_conf "$HESTIA/conf/hestia.conf"
+
+export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+CONF="$HESTIA/conf/mongodb.conf"
+
+#----------------------------------------------------------#
+#                    Verifications                         #
+#----------------------------------------------------------#
+
+if [ "$(id -u)" != '0' ]; then
+	echo "ERROR: v-delete-sys-mongodb can only be executed by the root user" >&2
+	exit "$E_FORBIDEN"
+fi
+is_type_valid 'yes no' "$delete_data"
+if [ ! -f "$CONF" ]; then
+	echo "ERROR: MongoDB isn't installed by W3VJHOST" >&2
+	exit "$E_NOTEXIST"
+fi
+shopt -s nullglob
+for record in "$HESTIA"/data/users/*/nosql-mongodb.conf; do
+	if [ -s "$record" ]; then
+		echo "ERROR: remove all managed MongoDB databases before uninstalling MongoDB" >&2
+		exit "$E_INUSE"
+	fi
+done
+
+# Perform verification if read-only mode is enabled
+check_hestia_demo_mode
+
+#----------------------------------------------------------#
+#                       Action                             #
+#----------------------------------------------------------#
+
+[ -f "$HESTIA/conf/mongo-express.conf" ] && $BIN/v-delete-sys-mongo-express
+systemctl disable --now mongod > /dev/null 2>&1
+DEBIAN_FRONTEND=noninteractive apt-get -y -qq purge 'mongodb-org*' > /dev/null 2>&1
+rm -f /etc/apt/sources.list.d/mongodb-org.list /usr/share/keyrings/mongodb-server-*.gpg /etc/mongod.conf
+if [ "$delete_data" = 'yes' ]; then
+	rm -rf /var/lib/mongodb /var/log/mongodb
+fi
+rm -f "$CONF"
+
+#----------------------------------------------------------#
+#                       Hestia                             #
+#----------------------------------------------------------#
+
+[ "$delete_data" = 'yes' ] || echo "MongoDB removed; data kept in /var/lib/mongodb"
+$BIN/v-log-action "system" "Info" "Plugins" "MongoDB removed (data deleted: $delete_data)."
+log_event "$OK" "$ARGUMENTS"
+
+exit

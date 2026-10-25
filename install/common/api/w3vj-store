@@ -1,0 +1,2 @@
+ROLE='admin'
+COMMANDS='v-add-user,v-list-user,v-list-user-package,v-suspend-user,v-unsuspend-user,v-change-user-package,v-make-tmp-file'

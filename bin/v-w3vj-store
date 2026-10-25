@@ -1,0 +1,46 @@
+#!/bin/bash
+# info: manage the W3VJHOST store
+# options: COMMAND [ARGS]
+#
+# example: v-w3vj-store set-keys
+# example: v-w3vj-store add-plan default 499 monthly "Starter"
+# example: v-w3vj-store orders failed
+#
+# Runs the store's admin CLI (private/store/cli.php) as the store owner. Run without
+# arguments for the list of commands.
+
+#----------------------------------------------------------#
+#                Variables & Functions                     #
+#----------------------------------------------------------#
+
+# Includes
+# shellcheck source=/etc/hestiacp/hestia.conf
+source /etc/hestiacp/hestia.conf
+# shellcheck source=/usr/local/hestia/func/main.sh
+source $HESTIA/func/main.sh
+# load config file
+source_conf "$HESTIA/conf/hestia.conf"
+
+export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+CONF="$HESTIA/conf/w3vj-store.conf"
+
+#----------------------------------------------------------#
+#                    Verifications                         #
+#----------------------------------------------------------#
+
+if [ "$(id -u)" != '0' ]; then
+	echo "ERROR: v-w3vj-store can only be executed by the root user" >&2
+	exit "$E_FORBIDEN"
+fi
+if [ ! -f "$CONF" ]; then
+	echo "ERROR: the store is not installed (v-add-sys-w3vj-store DOMAIN)" >&2
+	exit "$E_NOTEXIST"
+fi
+source_conf "$CONF"
+
+#----------------------------------------------------------#
+#                       Action                             #
+#----------------------------------------------------------#
+
+cd / || exit "$E_NOTEXIST"
+exec runuser -u "$OWNER" -- php "$HOMEDIR/$OWNER/web/$DOMAIN/private/store/cli.php" "${@:-help}"

@@ -1,0 +1,68 @@
+#!/bin/bash
+# info: start web domain application
+# options: USER DOMAIN
+#
+# example: v-start-web-domain-app admin example.com
+#
+# This function starts the application of a web domain and waits until
+# its socket accepts connections.
+
+#----------------------------------------------------------#
+#                Variables & Functions                     #
+#----------------------------------------------------------#
+
+# Argument definition
+user=$1
+domain=$2
+
+# Includes
+# shellcheck source=/etc/hestiacp/hestia.conf
+source /etc/hestiacp/hestia.conf
+# shellcheck source=/usr/local/hestia/func/main.sh
+source $HESTIA/func/main.sh
+# shellcheck source=/usr/local/hestia/func/runtime.sh
+source $HESTIA/func/runtime.sh
+# load config file
+source_conf "$HESTIA/conf/hestia.conf"
+
+# Additional argument formatting
+format_domain
+format_domain_idn
+
+#----------------------------------------------------------#
+#                    Verifications                         #
+#----------------------------------------------------------#
+
+check_args '2' "$#" 'USER DOMAIN'
+is_format_valid 'user' 'domain'
+is_object_valid 'user' 'USER' "$user"
+is_object_unsuspended 'user' 'USER' "$user"
+is_object_valid 'web' 'DOMAIN' "$domain"
+is_object_unsuspended 'web' 'DOMAIN' "$domain"
+if [ -z "$(get_web_app_value 'APP_TEMPLATE')" ]; then
+	check_result "$E_NOTEXIST" "$domain doesn't run an application"
+fi
+
+# Perform verification if read-only mode is enabled
+check_hestia_demo_mode
+
+#----------------------------------------------------------#
+#                       Action                             #
+#----------------------------------------------------------#
+
+update_object_value 'web' 'DOMAIN' "$domain" '$APP_STATUS' 'running'
+if ! start_web_app; then
+	echo "ERROR: Application of $domain failed to start, see $HOMEDIR/$user/web/$domain/logs/app.log"
+	log_event "$E_RESTART" "$ARGUMENTS"
+	exit "$E_RESTART"
+fi
+
+#----------------------------------------------------------#
+#                       Hestia                             #
+#----------------------------------------------------------#
+
+# Logging
+$BIN/v-log-action "$user" "Info" "Web" "Application started (Domain: $domain)."
+log_event "$OK" "$ARGUMENTS"
+
+exit

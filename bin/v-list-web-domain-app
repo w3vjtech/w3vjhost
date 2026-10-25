@@ -1,0 +1,104 @@
+#!/bin/bash
+# info: list web domain application
+# options: USER DOMAIN [FORMAT]
+#
+# example: v-list-web-domain-app admin example.com json
+#
+# This function lists the application of a web domain with its live status.
+
+#----------------------------------------------------------#
+#                Variables & Functions                     #
+#----------------------------------------------------------#
+
+# Argument definition
+user=$1
+domain=$2
+format=${3-shell}
+
+# Includes
+# shellcheck source=/etc/hestiacp/hestia.conf
+source /etc/hestiacp/hestia.conf
+# shellcheck source=/usr/local/hestia/func/main.sh
+source $HESTIA/func/main.sh
+# shellcheck source=/usr/local/hestia/func/runtime.sh
+source $HESTIA/func/runtime.sh
+# load config file
+source_conf "$HESTIA/conf/hestia.conf"
+
+# JSON list function
+json_list() {
+	echo '{'
+	echo '    "'$domain'": {
+        "TEMPLATE": "'$app_template'",
+        "RUNTIME": "'$app_runtime'",
+        "VERSION": "'$app_version'",
+        "ENTRY": "'$app_entry'",
+        "STATE": "'$app_state'",
+        "STATUS": "'$app_status'",
+        "DIR": "'$app_dir'",
+        "SOCKET": "'$app_socket'",
+        "SERVICE": "'$app_unit'"
+    }'
+	echo '}'
+}
+
+# SHELL list function
+shell_list() {
+	echo "DOMAIN:     $domain"
+	echo "TEMPLATE:   $app_template"
+	echo "RUNTIME:    $app_runtime $app_version"
+	echo "ENTRY:      $app_entry"
+	echo "STATE:      $app_state"
+	echo "STATUS:     $app_status"
+	echo "DIR:        $app_dir"
+	echo "SOCKET:     $app_socket"
+	echo "SERVICE:    $app_unit"
+}
+
+# PLAIN list function
+plain_list() {
+	echo -e "$domain\t$app_template\t$app_runtime\t$app_version\t$app_entry\t$app_state\t$app_status\t$app_dir\t$app_socket\t$app_unit"
+}
+
+# CSV list function
+csv_list() {
+	echo "DOMAIN,TEMPLATE,RUNTIME,VERSION,ENTRY,STATE,STATUS,DIR,SOCKET,SERVICE"
+	echo "$domain,$app_template,$app_runtime,$app_version,$app_entry,$app_state,$app_status,$app_dir,$app_socket,$app_unit"
+}
+
+#----------------------------------------------------------#
+#                    Verifications                         #
+#----------------------------------------------------------#
+
+check_args '2' "$#" 'USER DOMAIN [FORMAT]'
+is_format_valid 'user' 'domain' 'format'
+is_object_valid 'user' 'USER' "$user"
+is_object_valid 'web' 'DOMAIN' "$domain"
+app_template=$(get_web_app_value 'APP_TEMPLATE')
+if [ -z "$app_template" ]; then
+	check_result "$E_NOTEXIST" "$domain doesn't run an application"
+fi
+
+#----------------------------------------------------------#
+#                       Action                             #
+#----------------------------------------------------------#
+
+prepare_app_template "$app_template"
+prepare_web_app_paths
+app_entry=$(get_web_app_value 'APP_ENTRY')
+app_state=$(get_web_app_value 'APP_STATUS')
+app_status=$(web_app_status)
+
+# Listing data
+case $format in
+	json) json_list ;;
+	plain) plain_list ;;
+	csv) csv_list ;;
+	shell) shell_list ;;
+esac
+
+#----------------------------------------------------------#
+#                       Hestia                             #
+#----------------------------------------------------------#
+
+exit

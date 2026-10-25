@@ -47,6 +47,10 @@ check_hestia_demo_mode
 #                       Action                             #
 #----------------------------------------------------------#
 
+# Deleting managed NoSQL databases
+$BIN/v-delete-nosql-databases "$user"
+check_result "$?" "NoSQL database deletion failed"
+
 # Deleting web domains
 if [ -n "$WEB_SYSTEM" ] && [ "$WEB_SYSTEM" != 'no' ]; then
 	$BIN/v-unsuspend-web-domains "$user" "$restart"

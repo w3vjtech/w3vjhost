@@ -6,14 +6,19 @@ export default async function initWebTerminal() {
 
 	const Terminal = await loadXterm();
 	const terminal = new Terminal();
-	let Addon = null;
-	if (typeof WebGL2RenderingContext !== 'undefined') {
-		Addon = await loadWebGLAddon();
-	} else {
-		Addon = await loadCanvasAddon();
-	}
-	terminal.loadAddon(new Addon());
 	terminal.open(container);
+	// WebGL renderer when available; otherwise xterm's built-in DOM renderer
+	// (no canvas addon is bundled)
+	if (typeof WebGL2RenderingContext !== 'undefined') {
+		try {
+			const WebglAddon = await loadWebGLAddon();
+			const webgl = new WebglAddon();
+			webgl.onContextLoss(() => webgl.dispose());
+			terminal.loadAddon(webgl);
+		} catch {
+			// Keep the DOM renderer
+		}
+	}
 
 	const socket = new WebSocket(`wss://${window.location.host}/_shell/`);
 	socket.addEventListener('open', (_) => {
@@ -27,7 +32,7 @@ export default async function initWebTerminal() {
 	socket.addEventListener('close', (evt) => {
 		if (evt.wasClean) {
 			terminal.reset();
-			terminal.writeln(evt.reason ?? 'Connection closed.');
+			terminal.writeln(evt.reason || 'Connection closed.');
 		}
 	});
 }
@@ -48,13 +53,4 @@ async function loadWebGLAddon() {
 	const xtermBundlePath = '/js/dist/xterm-addon-webgl.min.js';
 	const xtermModule = await import(`${xtermBundlePath}`);
 	return xtermModule.default.WebglAddon;
-}
-
-/** @returns {Promise<typeof import("@xterm/addon-canvas").CanvasAddon>} */
-async function loadCanvasAddon() {
-	// NOTE: String expression used to prevent ESBuild from resolving
-	// the import on build (xterm-addon-canvas is a separate bundle)
-	const xtermBundlePath = '/js/dist/xterm-addon-canvas.min.js';
-	const xtermModule = await import(`${xtermBundlePath}`);
-	return xtermModule.default.CanvasAddon;
 }

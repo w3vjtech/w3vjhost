@@ -79,6 +79,15 @@ if [ -n "$PROXY_SYSTEM" ] && [ -n "$PROXY" ]; then
 	fi
 fi
 
+# Stopping Node.js / Python application, also across reboots
+# (APP_STATUS keeps the desired state for unsuspend)
+# shellcheck source=/usr/local/hestia/func/runtime.sh
+source $HESTIA/func/runtime.sh
+prepare_web_app_paths
+if [ -f "/etc/systemd/system/$app_unit" ]; then
+	systemctl disable --now "$app_unit" > /dev/null 2>&1
+fi
+
 #----------------------------------------------------------#
 #                       Hestia                             #
 #----------------------------------------------------------#

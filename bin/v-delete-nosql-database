@@ -1,0 +1,70 @@
+#!/bin/bash
+# info: delete a user-scoped MongoDB database or Redis namespace
+# options: USER TYPE NAME
+#
+# example: v-delete-nosql-database admin mongodb app
+
+user=$1
+type=$2
+name=$3
+
+source /etc/hestiacp/hestia.conf
+source "$HESTIA/func/main.sh"
+source "$HESTIA/func/nosql.sh"
+source_conf "$HESTIA/conf/hestia.conf"
+
+check_args '3' "$#" 'USER TYPE NAME'
+is_format_valid 'user'
+is_type_valid 'mongodb redis' "$type"
+nosql_validate_name "$name"
+is_object_valid 'user' 'USER' "$user"
+USER_DATA="$HESTIA/data/users/$user"
+record_file=$(nosql_record_file "$type")
+record=$(grep -F "NAME='$name' " "$record_file" 2>/dev/null)
+if [ -z "$record" ]; then
+	check_result "$E_NOTEXIST" "NoSQL database $name doesn't exist"
+fi
+parse_object_kv_list "$record"
+check_hestia_demo_mode
+
+if [ "$type" = "mongodb" ]; then
+	nosql_load_service_config mongodb
+	command -v mongosh >/dev/null 2>&1 || check_result "$E_DISABLED" "mongosh is not installed"
+	statement="const target=client.getDB('$DATABASE'); if(target.getUser('$DBUSER')) { const userResult=target.runCommand({dropUser:'$DBUSER'}); if(userResult.ok!==1) throw new Error('MongoDB user deletion failed'); } const databaseResult=target.dropDatabase(); if(databaseResult.ok!==1) throw new Error('MongoDB database deletion failed');"
+	if ! nosql_mongodb_eval "$statement"; then
+		check_result "$E_DB" "failed to delete MongoDB database or scoped user"
+	fi
+else
+	nosql_load_service_config redis
+	command -v redis-cli >/dev/null 2>&1 || check_result "$E_DISABLED" "redis-cli is not installed"
+	output=$(nosql_redis_cli ACL GETUSER "$DBUSER")
+	if [ "$?" -ne 0 ]; then
+		check_result "$E_DB" "failed to inspect Redis ACL user"
+	fi
+	if [ -n "$output" ]; then
+		output=$(nosql_redis_cli ACL SETUSER "$DBUSER" off)
+		if [ "$?" -ne 0 ] || [ "$output" != "OK" ]; then
+			check_result "$E_DB" "failed to disable Redis ACL user"
+		fi
+	fi
+	if ! nosql_redis_delete_keys "${NAMESPACE}*"; then
+		check_result "$E_DB" "failed to delete Redis namespace keys"
+	fi
+	output=$(nosql_redis_cli ACL DELUSER "$DBUSER")
+	if [ "$?" -ne 0 ] || [[ ! "$output" =~ ^[01]$ ]]; then
+		check_result "$E_DB" "failed to delete Redis ACL user"
+	fi
+	output=$(nosql_redis_cli ACL SAVE)
+	if [ "$?" -ne 0 ] || [ "$output" != "OK" ]; then
+		check_result "$E_DB" "failed to persist Redis ACL changes"
+	fi
+fi
+
+nosql_remove_record "$type" "$name"
+if [ "$?" -ne 0 ]; then
+	check_result "$E_UPDATE" "failed to update NoSQL database records"
+fi
+decrease_user_value "$user" '$U_DATABASES'
+$BIN/v-log-action "$user" "Info" "Databases" "Deleted $type database $name."
+log_event "$OK" "$ARGUMENTS"
+exit

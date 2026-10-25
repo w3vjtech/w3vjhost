@@ -1,0 +1,105 @@
+#!/bin/bash
+# info: add Redis server
+# options: [MAXMEMORY]
+#
+# example: v-add-sys-redis
+# example: v-add-sys-redis 256mb
+#
+# Install Redis from the official packages.redis.io repository, listening on
+# 127.0.0.1 only with a password and a memory limit. The password is stored in
+# $HESTIA/conf/redis.conf (root only). Connect with RedisInsight through an SSH
+# tunnel to 127.0.0.1:6379.
+
+#----------------------------------------------------------#
+#                Variables & Functions                     #
+#----------------------------------------------------------#
+
+# Argument definition
+maxmemory=${1-128mb}
+
+# Includes
+# shellcheck source=/etc/hestiacp/hestia.conf
+source /etc/hestiacp/hestia.conf
+# shellcheck source=/usr/local/hestia/func/main.sh
+source $HESTIA/func/main.sh
+# load config file
+source_conf "$HESTIA/conf/hestia.conf"
+
+# WSL appends the Windows PATH; use Linux tools only
+export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+CONF="$HESTIA/conf/redis.conf"
+RCONF=/etc/redis/redis.conf
+
+#----------------------------------------------------------#
+#                    Verifications                         #
+#----------------------------------------------------------#
+
+if [ "$(id -u)" != '0' ]; then
+	echo "ERROR: v-add-sys-redis can only be executed by the root user" >&2
+	exit "$E_FORBIDEN"
+fi
+if [[ ! "$maxmemory" =~ ^[0-9]+(mb|gb)$ ]]; then
+	echo "ERROR: MAXMEMORY must look like 128mb or 1gb" >&2
+	exit "$E_INVALID"
+fi
+if [ -f "$CONF" ] || command -v redis-server > /dev/null; then
+	echo "ERROR: Redis is already installed" >&2
+	exit "$E_EXISTS"
+fi
+
+# Perform verification if read-only mode is enabled
+check_hestia_demo_mode
+
+#----------------------------------------------------------#
+#                       Action                             #
+#----------------------------------------------------------#
+
+# shellcheck source=/dev/null
+source /etc/os-release
+echo "Installing Redis, please wait..."
+curl -fsSL https://packages.redis.io/gpg | gpg --dearmor --yes -o /usr/share/keyrings/redis-archive-keyring.gpg
+echo "deb [signed-by=/usr/share/keyrings/redis-archive-keyring.gpg] https://packages.redis.io/deb $VERSION_CODENAME main" \
+	> /etc/apt/sources.list.d/redis.list
+apt-get -qq update
+if ! DEBIAN_FRONTEND=noninteractive apt-get -y -qq install redis > /dev/null 2>&1; then
+	echo "ERROR: installing redis failed (packages.redis.io may not cover $PRETTY_NAME yet)" >&2
+	log_event "$E_UPDATE" "$ARGUMENTS"
+	exit "$E_UPDATE"
+fi
+
+password=$(generate_password 'A-Za-z0-9' 32)
+sed -i -E 's/^#? *bind .*/bind 127.0.0.1 -::1/' "$RCONF"
+sed -i -E 's/^#? *protected-mode .*/protected-mode yes/' "$RCONF"
+sed -i -E '/^#? *requirepass /d; /^#? *maxmemory /d; /^#? *aclfile /d' "$RCONF"
+{
+	echo "# W3VJHOST (v-add-sys-redis)"
+	echo "requirepass $password"
+	echo "maxmemory $maxmemory"
+	echo "aclfile /etc/redis/users.acl"
+} >> "$RCONF"
+chown redis:redis "$RCONF"
+chmod 640 "$RCONF"
+install -o redis -g redis -m 640 /dev/null /etc/redis/users.acl
+printf 'user default on >%s ~* &* +@all\n' "$password" > /etc/redis/users.acl
+
+unit=$(systemctl list-unit-files 'redis*.service' --no-legend | awk '{print $1}' | grep -E '^redis(-server)?\.service$' | head -1)
+systemctl enable -q "$unit"
+systemctl restart "$unit"
+sleep 1
+if ! REDISCLI_AUTH="$password" redis-cli -h 127.0.0.1 ping | grep -q PONG; then
+	check_result "$E_CONNECT" "Redis didn't answer on 127.0.0.1:6379"
+fi
+
+install -m 600 /dev/null "$CONF"
+echo "HOST='localhost' PASSWORD='$password' PORT='6379' MAXMEMORY='$maxmemory' SERVICE='$unit' SUSPENDED='no'" > "$CONF"
+
+#----------------------------------------------------------#
+#                       Hestia                             #
+#----------------------------------------------------------#
+
+echo "Redis $(redis-server --version | grep -oP 'v=\K\S+') is running on 127.0.0.1:6379 (password in $CONF)"
+
+$BIN/v-log-action "system" "Info" "Plugins" "Redis installed (maxmemory $maxmemory)."
+log_event "$OK" "$ARGUMENTS"
+
+exit

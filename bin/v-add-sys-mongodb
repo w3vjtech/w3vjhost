@@ -1,0 +1,146 @@
+#!/bin/bash
+# info: add MongoDB server
+# options: [CACHE_GB]
+#
+# example: v-add-sys-mongodb
+# example: v-add-sys-mongodb 0.5
+#
+# Install MongoDB Community from the official repository, listening on
+# 127.0.0.1 only with authentication enabled. The admin login is stored in
+# $HESTIA/conf/mongodb.conf (root only). MongoDB Community is licensed under
+# the SSPL: check its terms before offering MongoDB to hosting customers.
+
+#----------------------------------------------------------#
+#                Variables & Functions                     #
+#----------------------------------------------------------#
+
+# Argument definition
+cache_gb=${1-0.25}
+
+# Includes
+# shellcheck source=/etc/hestiacp/hestia.conf
+source /etc/hestiacp/hestia.conf
+# shellcheck source=/usr/local/hestia/func/main.sh
+source $HESTIA/func/main.sh
+# load config file
+source_conf "$HESTIA/conf/hestia.conf"
+source_conf "$HESTIA/install/upgrade/upgrade.conf"
+
+# WSL appends the Windows PATH; use Linux tools only
+export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+CONF="$HESTIA/conf/mongodb.conf"
+
+write_mongod_conf() {
+	cat > /etc/mongod.conf << EOF
+# W3VJHOST: local only, small cache (shared hosting server), authentication $1
+storage:
+  dbPath: /var/lib/mongodb
+  directoryPerDB: true
+  wiredTiger:
+    engineConfig:
+      cacheSizeGB: $cache_gb
+systemLog:
+  destination: file
+  logAppend: true
+  path: /var/log/mongodb/mongod.log
+net:
+  port: 27017
+  bindIp: 127.0.0.1
+processManagement:
+  timeZoneInfo: /usr/share/zoneinfo
+security:
+  authorization: $1
+EOF
+}
+
+mongod_restart() {
+	systemctl restart mongod
+	local i
+	for i in $(seq 1 30); do
+		mongosh --quiet --eval 'db.runCommand({ping:1}).ok' > /dev/null 2>&1 && return 0
+		sleep 1
+	done
+	return 1
+}
+
+#----------------------------------------------------------#
+#                    Verifications                         #
+#----------------------------------------------------------#
+
+if [ "$(id -u)" != '0' ]; then
+	echo "ERROR: v-add-sys-mongodb can only be executed by the root user" >&2
+	exit "$E_FORBIDEN"
+fi
+if [[ ! "$cache_gb" =~ ^[0-9]+(\.[0-9]+)?$ ]]; then
+	echo "ERROR: CACHE_GB must be a number, for example 0.25 or 1" >&2
+	exit "$E_INVALID"
+fi
+if [ -f "$CONF" ] || command -v mongod > /dev/null; then
+	echo "ERROR: MongoDB is already installed" >&2
+	exit "$E_EXISTS"
+fi
+if [ "$(uname -m)" = "x86_64" ] && ! grep -qw avx /proc/cpuinfo; then
+	echo "ERROR: this CPU has no AVX, MongoDB ${w3vj_mongodb_v} can't run on it" >&2
+	exit "$E_INVALID"
+fi
+
+# shellcheck source=/dev/null
+source /etc/os-release
+case "$ID" in
+	ubuntu) repo="https://repo.mongodb.org/apt/ubuntu $VERSION_CODENAME/mongodb-org/${w3vj_mongodb_v} multiverse" ;;
+	debian) repo="https://repo.mongodb.org/apt/debian $VERSION_CODENAME/mongodb-org/${w3vj_mongodb_v} main" ;;
+	*) echo "ERROR: unsupported OS $PRETTY_NAME" >&2; exit "$E_INVALID" ;;
+esac
+# The MongoDB repository doesn't always cover the newest releases yet
+if ! curl -fsI "${repo%% *}/dists/$VERSION_CODENAME/mongodb-org/${w3vj_mongodb_v}/Release" > /dev/null; then
+	echo "ERROR: MongoDB ${w3vj_mongodb_v} has no packages for $PRETTY_NAME ($VERSION_CODENAME) yet" >&2
+	exit "$E_NOTEXIST"
+fi
+
+# Perform verification if read-only mode is enabled
+check_hestia_demo_mode
+
+#----------------------------------------------------------#
+#                       Action                             #
+#----------------------------------------------------------#
+
+echo "Installing MongoDB ${w3vj_mongodb_v}, please wait..."
+keyring="/usr/share/keyrings/mongodb-server-${w3vj_mongodb_v}.gpg"
+curl -fsSL "https://pgp.mongodb.com/server-${w3vj_mongodb_v}.asc" | gpg --dearmor --yes -o "$keyring"
+echo "deb [ arch=amd64,arm64 signed-by=$keyring ] $repo" > /etc/apt/sources.list.d/mongodb-org.list
+apt-get -qq update
+if ! DEBIAN_FRONTEND=noninteractive apt-get -y -qq install mongodb-org > /dev/null 2>&1; then
+	echo "ERROR: installing mongodb-org failed" >&2
+	log_event "$E_UPDATE" "$ARGUMENTS"
+	exit "$E_UPDATE"
+fi
+systemctl enable -q mongod
+
+# Create the admin user with authentication briefly off (127.0.0.1 only)
+password=$(generate_password 'A-Za-z0-9' 24)
+write_mongod_conf disabled
+mongod_restart || check_result "$E_RESTART" "mongod didn't start"
+mongosh --quiet admin --eval "
+	if (db.getUser('$ROOT_USER')) { db.updateUser('$ROOT_USER', {pwd: '$password'}) }
+	else { db.createUser({user: '$ROOT_USER', pwd: '$password', roles: ['root']}) }" > /dev/null
+write_mongod_conf enabled
+mongod_restart || check_result "$E_RESTART" "mongod didn't start"
+if ! mongosh --quiet "mongodb://$ROOT_USER:$password@127.0.0.1:27017/admin" --eval 'db.runCommand({ping:1}).ok' | grep -q 1; then
+	check_result "$E_CONNECT" "MongoDB admin login failed"
+fi
+
+# Same format as the other database hosts ($HESTIA/conf/mysql.conf)
+install -m 600 /dev/null "$CONF"
+echo "HOST='localhost' USER='$ROOT_USER' PASSWORD='$password' PORT='27017' SUSPENDED='no'" > "$CONF"
+
+#----------------------------------------------------------#
+#                       Hestia                             #
+#----------------------------------------------------------#
+
+echo "MongoDB $(mongod --version | awk 'NR==1{print $3}') is running on 127.0.0.1:27017"
+echo "Admin login: $ROOT_USER (password in $CONF)"
+
+$BIN/v-log-action "system" "Info" "Plugins" "MongoDB ${w3vj_mongodb_v} installed."
+log_event "$OK" "$ARGUMENTS"
+
+exit

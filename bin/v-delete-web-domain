@@ -111,6 +111,14 @@ rm -f /var/log/$WEB_SYSTEM/domains/$domain.log*
 rm -f /var/log/$WEB_SYSTEM/domains/$domain.bytes
 rm -f /var/log/$WEB_SYSTEM/domains/$domain.error*
 
+# Deleting Node.js / Python application service
+# shellcheck source=/usr/local/hestia/func/runtime.sh
+source $HESTIA/func/runtime.sh
+prepare_web_app_paths
+if [ -f "/etc/systemd/system/$app_unit" ]; then
+	delete_web_app_unit
+fi
+
 # Deleting directory
 rm -rf $HOMEDIR/$user/web/$domain
 rm -rf $HOMEDIR/$user/conf/web/$domain

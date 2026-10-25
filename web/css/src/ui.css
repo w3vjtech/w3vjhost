@@ -1,0 +1,6 @@
+/* Production entry: Tailwind-generated styles only. */
+@import "tailwindcss" source(none);
+@source "../../templates";
+@source "../../js";
+@source "../../error";
+@source "../../inc/main.php";

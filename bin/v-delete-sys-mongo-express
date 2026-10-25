@@ -1,0 +1,61 @@
+#!/bin/bash
+# info: delete Mongo Express web admin
+# options: NONE
+#
+# example: v-delete-sys-mongo-express
+#
+# Stops and removes Mongo Express and its /mongo-express/ route. MongoDB stays.
+
+#----------------------------------------------------------#
+#                Variables & Functions                     #
+#----------------------------------------------------------#
+
+# Includes
+# shellcheck source=/etc/hestiacp/hestia.conf
+source /etc/hestiacp/hestia.conf
+# shellcheck source=/usr/local/hestia/func/main.sh
+source $HESTIA/func/main.sh
+# load config file
+source_conf "$HESTIA/conf/hestia.conf"
+
+ME_CONF="$HESTIA/conf/mongo-express.conf"
+
+#----------------------------------------------------------#
+#                    Verifications                         #
+#----------------------------------------------------------#
+
+if [ "$(id -u)" != '0' ]; then
+	echo "ERROR: v-delete-sys-mongo-express can only be executed by the root user" >&2
+	exit "$E_FORBIDEN"
+fi
+if [ ! -f "$ME_CONF" ]; then
+	echo "ERROR: Mongo Express isn't installed" >&2
+	exit "$E_NOTEXIST"
+fi
+
+# Perform verification if read-only mode is enabled
+check_hestia_demo_mode
+
+#----------------------------------------------------------#
+#                       Action                             #
+#----------------------------------------------------------#
+
+parse_object_kv_list "$(cat "$ME_CONF")"
+systemctl disable --now w3vj-mongo-express > /dev/null 2>&1
+rm -f /etc/systemd/system/w3vj-mongo-express.service /etc/w3vj/mongo-express.env
+systemctl daemon-reload
+rm -rf /opt/w3vj/mongo-express
+rm -f "$HOMEDIR/$USER/conf/web/$DOMAIN/nginx.conf_mongo-express" \
+	"$HOMEDIR/$USER/conf/web/$DOMAIN/nginx.ssl.conf_mongo-express"
+$BIN/v-restart-proxy
+$BIN/v-restart-web
+rm -f "$ME_CONF"
+
+#----------------------------------------------------------#
+#                       Hestia                             #
+#----------------------------------------------------------#
+
+$BIN/v-log-action "system" "Info" "Plugins" "Mongo Express removed."
+log_event "$OK" "$ARGUMENTS"
+
+exit

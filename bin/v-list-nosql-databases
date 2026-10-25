@@ -1,0 +1,69 @@
+#!/bin/bash
+# info: listing user NoSQL databases
+# options: USER [FORMAT]
+#
+# example: v-list-nosql-databases admin json
+
+user=$1
+format=${2-json}
+
+source /etc/hestiacp/hestia.conf
+source "$HESTIA/func/main.sh"
+source "$HESTIA/func/nosql.sh"
+source_conf "$HESTIA/conf/hestia.conf"
+
+check_args '1' "$#" 'USER [FORMAT]'
+is_format_valid 'user' 'format'
+is_object_valid 'user' 'USER' "$user"
+USER_DATA="$HESTIA/data/users/$user"
+
+if [ "$format" != "json" ]; then
+	check_result "$E_INVALID" "v-list-nosql-databases currently supports JSON output only"
+fi
+
+mongodb_available=false
+redis_available=false
+redis_acl_setup_required=false
+if [ -f "$HESTIA/conf/mongodb.conf" ] && command -v mongosh >/dev/null 2>&1; then
+	parse_object_kv_list "$(cat "$HESTIA/conf/mongodb.conf")"
+	[ "${SUSPENDED-no}" != "yes" ] && mongodb_available=true
+fi
+if [ -f "$HESTIA/conf/redis.conf" ] && command -v redis-cli >/dev/null 2>&1; then
+	parse_object_kv_list "$(cat "$HESTIA/conf/redis.conf")"
+	if [ "${SUSPENDED-no}" != "yes" ]; then
+		if grep -Eq '^[[:space:]]*aclfile[[:space:]]+/etc/redis/users\.acl$' /etc/redis/redis.conf &&
+			[ -f /etc/redis/users.acl ]; then
+			redis_available=true
+		else
+			redis_acl_setup_required=true
+		fi
+	fi
+fi
+
+printf '{"services":{"mongodb":%s,"redis":%s},"redis_acl_setup_required":%s,"mongodb":[' \
+	"$mongodb_available" "$redis_available" "$redis_acl_setup_required"
+nosql_print_entries() {
+	local type=$1
+	local file
+	local first=true
+
+	file=$(nosql_record_file "$type")
+	[ -f "$file" ] || return 0
+	while IFS= read -r record; do
+		[ -n "$record" ] || continue
+		parse_object_kv_list "$record"
+		if [ "$first" = true ]; then
+			first=false
+		else
+			printf ','
+		fi
+		printf '{"NAME":"%s","DATABASE":"%s","DBUSER":"%s","HOST":"127.0.0.1","PORT":"%s","NAMESPACE":"%s","TYPE":"%s"}' \
+			"$NAME" "$DATABASE" "$DBUSER" "$PORT" "$NAMESPACE" "$type"
+	done < "$file"
+}
+
+nosql_print_entries mongodb
+printf '],"redis":['
+nosql_print_entries redis
+printf ']}\n'
+exit

@@ -11,6 +11,11 @@ if ($_SESSION["userContext"] === "admin" && !empty($_GET["user"])) {
 // Check token
 verify_csrf($_GET);
 
+if ($read_only === true) {
+	header("Location: /list/backup/exclusions/");
+	exit();
+}
+
 if (!empty($_GET["system"])) {
 	$v_system = quoteshellarg($_GET["system"]);
 	exec(

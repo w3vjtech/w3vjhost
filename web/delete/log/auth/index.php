@@ -6,6 +6,11 @@ include $_SERVER["DOCUMENT_ROOT"] . "/inc/main.php";
 // Check token
 verify_csrf($_GET);
 
+if ($read_only === true) {
+	header("Location: /list/log/auth/");
+	exit();
+}
+
 // Check if administrator is viewing system log (currently 'admin' user)
 if ($_SESSION["userContext"] === "admin" && isset($_GET["user"])) {
 	$user = quoteshellarg($_GET["user"]);

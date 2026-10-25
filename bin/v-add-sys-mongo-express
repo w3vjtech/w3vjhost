@@ -1,0 +1,177 @@
+#!/bin/bash
+# info: add Mongo Express web admin for MongoDB
+# options: [DOMAIN]
+#
+# example: v-add-sys-mongo-express
+# example: v-add-sys-mongo-express panel.example.com
+#
+# Builds Mongo Express from its pinned release commit (the npm packages can't
+# be installed), runs it as an isolated service on 127.0.0.1 and publishes it
+# at http(s)://DOMAIN/mongo-express/ behind its own login. DOMAIN must be a web
+# domain of the admin user (default: the server hostname). It logs in to MongoDB
+# as root, so it is never added to customer domains.
+
+#----------------------------------------------------------#
+#                Variables & Functions                     #
+#----------------------------------------------------------#
+
+# Includes
+# shellcheck source=/etc/hestiacp/hestia.conf
+source /etc/hestiacp/hestia.conf
+# shellcheck source=/usr/local/hestia/func/main.sh
+source $HESTIA/func/main.sh
+# load config file
+source_conf "$HESTIA/conf/hestia.conf"
+source_conf "$HESTIA/install/upgrade/upgrade.conf"
+
+# Argument definition
+domain=${1-$(hostname -f)}
+user="$ROOT_USER"
+# main.sh derived USER_DATA before ROOT_USER was known
+USER_DATA="$HESTIA/data/users/$user"
+
+# WSL appends the Windows PATH; use Linux tools and the W3VJ Node.js 22 only
+NODEBIN=/opt/w3vj/nodejs/22/bin
+export PATH=$NODEBIN:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+export COREPACK_HOME=/opt/w3vj/corepack COREPACK_ENABLE_DOWNLOAD_PROMPT=0
+ME_DIR=/opt/w3vj/mongo-express
+ME_ENV=/etc/w3vj/mongo-express.env
+ME_CONF="$HESTIA/conf/mongo-express.conf"
+ME_PORT=8091
+MONGO_CONF="$HESTIA/conf/mongodb.conf"
+
+#----------------------------------------------------------#
+#                    Verifications                         #
+#----------------------------------------------------------#
+
+if [ "$(id -u)" != '0' ]; then
+	echo "ERROR: v-add-sys-mongo-express can only be executed by the root user" >&2
+	exit "$E_FORBIDEN"
+fi
+format_domain
+is_format_valid 'domain'
+is_object_valid 'user' 'USER' "$user"
+is_object_valid 'web' 'DOMAIN' "$domain"
+if [ ! -f "$MONGO_CONF" ]; then
+	echo "ERROR: MongoDB isn't installed, run v-add-sys-mongodb first" >&2
+	exit "$E_NOTEXIST"
+fi
+if [ -f "$ME_CONF" ]; then
+	echo "ERROR: Mongo Express is already installed" >&2
+	exit "$E_EXISTS"
+fi
+
+# Perform verification if read-only mode is enabled
+check_hestia_demo_mode
+
+#----------------------------------------------------------#
+#                       Action                             #
+#----------------------------------------------------------#
+
+# Node.js 22 runtime (W3VJ) and git are needed to build
+if [ ! -x "$NODEBIN/node" ]; then
+	$BIN/v-add-web-nodejs 22 || check_result "$E_UPDATE" "Node.js 22 is required"
+fi
+command -v git > /dev/null || apt-get -y -qq install git > /dev/null
+
+echo "Building Mongo Express ${w3vj_mongo_express_tag}, please wait..."
+rm -rf "$ME_DIR"
+mkdir -p "$ME_DIR"
+git clone -q -c advice.detachedHead=false --depth 1 --branch "$w3vj_mongo_express_tag" \
+	https://github.com/mongo-express/mongo-express.git "$ME_DIR/app"
+commit=$(git -C "$ME_DIR/app" rev-parse HEAD)
+if [ "$commit" != "$w3vj_mongo_express_commit" ]; then
+	rm -rf "$ME_DIR"
+	check_result "$E_INVALID" "tag ${w3vj_mongo_express_tag} points to $commit, expected ${w3vj_mongo_express_commit}"
+fi
+cd "$ME_DIR/app"
+if ! corepack yarn install --immutable > /dev/null 2>&1 \
+	|| ! NODE_ENV=production corepack yarn build > /dev/null 2>&1 \
+	|| [ ! -f build-assets.json ]; then
+	cd /
+	rm -rf "$ME_DIR"
+	check_result "$E_UPDATE" "building Mongo Express failed"
+fi
+rm -rf .git
+cd /
+chown -R root:root "$ME_DIR" /opt/w3vj/corepack
+chmod -R go-w "$ME_DIR"
+
+# Configuration with the MongoDB admin login, root only
+parse_object_kv_list "$(cat "$MONGO_CONF")"
+me_password=$(generate_password 'A-Za-z0-9' 24)
+mkdir -p /etc/w3vj
+install -m 600 /dev/null "$ME_ENV"
+cat > "$ME_ENV" << EOF
+ME_CONFIG_MONGODB_URL=mongodb://$USER:$PASSWORD@127.0.0.1:$PORT/?authSource=admin
+ME_CONFIG_MONGODB_ENABLE_ADMIN=true
+ME_CONFIG_BASICAUTH=true
+ME_CONFIG_BASICAUTH_USERNAME=$user
+ME_CONFIG_BASICAUTH_PASSWORD=$me_password
+ME_CONFIG_SITE_BASEURL=/mongo-express/
+ME_CONFIG_SITE_COOKIESECRET=$(generate_password 'A-Za-z0-9' 32)
+ME_CONFIG_SITE_SESSIONSECRET=$(generate_password 'A-Za-z0-9' 32)
+VCAP_APP_HOST=127.0.0.1
+PORT=$ME_PORT
+NODE_ENV=production
+HOME=/tmp
+EOF
+
+cat > /etc/systemd/system/w3vj-mongo-express.service << EOF
+[Unit]
+Description=W3VJHOST Mongo Express ${w3vj_mongo_express_tag} (admin only)
+After=network.target mongod.service
+Wants=mongod.service
+
+[Service]
+DynamicUser=yes
+EnvironmentFile=$ME_ENV
+WorkingDirectory=$ME_DIR/app
+ExecStart=$NODEBIN/node app.js
+Restart=on-failure
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+MemoryMax=384M
+
+[Install]
+WantedBy=multi-user.target
+EOF
+systemctl daemon-reload
+systemctl enable -q --now w3vj-mongo-express
+
+# Publish on the admin domain only (per-domain include, kept on rebuilds)
+for conf in nginx.conf_mongo-express nginx.ssl.conf_mongo-express; do
+	cat > "$HOMEDIR/$user/conf/web/$domain/$conf" << EOF
+# W3VJHOST: admin-only Mongo Express (v-add-sys-mongo-express)
+location /mongo-express/ {
+	proxy_pass         http://127.0.0.1:$ME_PORT;
+	proxy_http_version 1.1;
+	proxy_set_header   Host              \$host;
+	proxy_set_header   X-Forwarded-For   \$proxy_add_x_forwarded_for;
+	proxy_set_header   X-Forwarded-Proto \$scheme;
+}
+EOF
+done
+$BIN/v-restart-proxy
+$BIN/v-restart-web
+
+install -m 600 /dev/null "$ME_CONF"
+echo "DOMAIN='$domain' USER='$user' PASSWORD='$me_password' PORT='$ME_PORT' VERSION='${w3vj_mongo_express_tag}'" > "$ME_CONF"
+
+#----------------------------------------------------------#
+#                       Hestia                             #
+#----------------------------------------------------------#
+
+for i in $(seq 1 20); do
+	curl -s -o /dev/null "http://127.0.0.1:$ME_PORT/mongo-express/" && break
+	sleep 1
+done
+echo "Mongo Express: http://$domain/mongo-express/  (login $user, password in $ME_CONF)"
+echo "Service: $(systemctl is-active w3vj-mongo-express)"
+
+$BIN/v-log-action "system" "Info" "Plugins" "Mongo Express ${w3vj_mongo_express_tag} installed (Domain: $domain)."
+log_event "$OK" "$ARGUMENTS"
+
+exit

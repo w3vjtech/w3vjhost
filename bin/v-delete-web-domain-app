@@ -1,0 +1,109 @@
+#!/bin/bash
+# info: delete web domain application
+# options: USER DOMAIN [RESTART]
+#
+# example: v-delete-web-domain-app admin example.com
+#
+# This function removes the application service of a web domain and restores
+# the default web, proxy and PHP templates of the user package.
+# The code in /home/USER/web/DOMAIN/app is kept.
+
+#----------------------------------------------------------#
+#                Variables & Functions                     #
+#----------------------------------------------------------#
+
+# Argument definition
+user=$1
+domain=$2
+restart=$3
+
+# Includes
+# shellcheck source=/etc/hestiacp/hestia.conf
+source /etc/hestiacp/hestia.conf
+# shellcheck source=/usr/local/hestia/func/main.sh
+source $HESTIA/func/main.sh
+# shellcheck source=/usr/local/hestia/func/domain.sh
+source $HESTIA/func/domain.sh
+# shellcheck source=/usr/local/hestia/func/ip.sh
+source $HESTIA/func/ip.sh
+# shellcheck source=/usr/local/hestia/func/runtime.sh
+source $HESTIA/func/runtime.sh
+# load config file
+source_conf "$HESTIA/conf/hestia.conf"
+
+# Additional argument formatting
+format_domain
+format_domain_idn
+
+#----------------------------------------------------------#
+#                    Verifications                         #
+#----------------------------------------------------------#
+
+check_args '2' "$#" 'USER DOMAIN [RESTART]'
+is_format_valid 'user' 'domain' 'restart'
+is_object_valid 'user' 'USER' "$user"
+is_object_valid 'web' 'DOMAIN' "$domain"
+if [ -z "$(get_web_app_value 'APP_TEMPLATE')" ]; then
+	check_result "$E_NOTEXIST" "$domain doesn't run an application"
+fi
+
+# Perform verification if read-only mode is enabled
+check_hestia_demo_mode
+
+#----------------------------------------------------------#
+#                       Action                             #
+#----------------------------------------------------------#
+
+delete_web_app_unit
+update_object_value 'web' 'DOMAIN' "$domain" '$APP_TEMPLATE' ''
+update_object_value 'web' 'DOMAIN' "$domain" '$APP_ENTRY' ''
+update_object_value 'web' 'DOMAIN' "$domain" '$APP_STATUS' ''
+
+# Restore package default templates
+get_domain_values 'web'
+local_ip=$(get_real_ip "$IP")
+if [ -n "$PROXY_SYSTEM" ]; then
+	del_web_config "$PROXY_SYSTEM" "$PROXY.tpl"
+	[ "$SSL" = 'yes' ] && del_web_config "$PROXY_SYSTEM" "$PROXY.stpl"
+	PROXY=$(get_user_value '$PROXY_TEMPLATE')
+	PROXY=${PROXY:-default}
+	update_object_value 'web' 'DOMAIN' "$domain" '$PROXY' "$PROXY"
+else
+	del_web_config "$WEB_SYSTEM" "$TPL.tpl"
+	[ "$SSL" = 'yes' ] && del_web_config "$WEB_SYSTEM" "$TPL.stpl"
+	TPL=$(get_user_value '$WEB_TEMPLATE')
+	TPL=${TPL:-default}
+	update_object_value 'web' 'DOMAIN' "$domain" '$TPL' "$TPL"
+fi
+
+if [ -n "$WEB_BACKEND" ] && [ "$WEB_BACKEND_POOL" != 'user' ]; then
+	# Rebuilds the vhosts with the restored templates and the PHP socket
+	backend_template=$(get_user_value '$BACKEND_TEMPLATE')
+	$BIN/v-change-web-domain-backend-tpl "$user" "$domain" "${backend_template:-default}" 'no'
+	check_result $? "Unable to restore PHP for $domain" > /dev/null
+else
+	prepare_web_domain_values
+	if [ -n "$PROXY_SYSTEM" ]; then
+		add_web_config "$PROXY_SYSTEM" "$PROXY.tpl"
+		[ "$SSL" = 'yes' ] && add_web_config "$PROXY_SYSTEM" "$PROXY.stpl"
+	else
+		add_web_config "$WEB_SYSTEM" "$TPL.tpl"
+		[ "$SSL" = 'yes' ] && add_web_config "$WEB_SYSTEM" "$TPL.stpl"
+	fi
+fi
+
+#----------------------------------------------------------#
+#                       Hestia                             #
+#----------------------------------------------------------#
+
+# Restarting web server
+$BIN/v-restart-web "$restart"
+check_result $? "Web restart failed" > /dev/null
+$BIN/v-restart-proxy "$restart"
+check_result $? "Proxy restart failed" > /dev/null
+
+# Logging
+$BIN/v-log-action "$user" "Info" "Web" "Application deleted (Domain: $domain)."
+log_event "$OK" "$ARGUMENTS"
+
+exit

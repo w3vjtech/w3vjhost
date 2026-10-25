@@ -27,9 +27,14 @@ export function debounce(func, wait = 100) {
 	};
 }
 
-// Returns the value of a CSS variable
+// Returns the value of a CSS variable (the theme defines them on <body>)
 export function getCssVariable(variableName) {
-	return getComputedStyle(document.documentElement).getPropertyValue(variableName).trim();
+	return getComputedStyle(document.body).getPropertyValue(variableName).trim();
+}
+
+// Decodes HTML entities in server-escaped text, for use with textContent
+export function decodeHtmlEntities(text) {
+	return new DOMParser().parseFromString(text, 'text/html').documentElement.textContent;
 }
 
 // Shows the loading spinner overlay
@@ -84,35 +89,37 @@ export function createConfirmationDialog({
 }) {
 	// Create the dialog
 	const dialog = document.createElement('dialog');
-	dialog.classList.add('modal');
+	dialog.classList.add('modal', 'm-auto', 'w-[calc(100%-2rem)]', 'max-w-lg', 'rounded-lg', 'border', 'border-slate-200', 'bg-white', 'p-5', 'text-slate-700', 'shadow-xl', 'backdrop:bg-slate-900/40');
 
 	// Create and insert the title
 	if (title) {
 		const titleElement = document.createElement('h2');
-		titleElement.innerHTML = title;
-		titleElement.classList.add('modal-title');
+		titleElement.textContent = title;
+		titleElement.classList.add('modal-title', 'mb-3', 'text-lg', 'font-semibold', 'text-slate-900');
 		dialog.append(titleElement);
 	}
 
 	// Create and insert the message
 	const messageElement = document.createElement('p');
-	messageElement.innerHTML = message;
-	messageElement.classList.add('modal-message');
+	// Text only: data-confirm-* attributes are entity-decoded by the browser, so innerHTML
+	// would turn an escaped object name back into markup
+	messageElement.textContent = message;
+	messageElement.classList.add('modal-message', 'mb-4', 'wrap-anywhere', 'text-sm');
 	dialog.append(messageElement);
 
 	// Create and insert the options
 	const optionsElement = document.createElement('div');
-	optionsElement.classList.add('modal-options');
+	optionsElement.classList.add('modal-options', 'flex', 'justify-end', 'gap-2', 'border-t', 'border-slate-200', 'pt-4');
 
 	const confirmButton = document.createElement('button');
 	confirmButton.type = 'submit';
-	confirmButton.classList.add('button');
+	confirmButton.classList.add('button', 'inline-flex', 'min-h-9', 'items-center', 'justify-center', 'gap-1.5', 'rounded-lg', 'border', 'border-blue-600', 'bg-blue-600', 'px-4', 'py-1.5', 'text-sm', 'font-semibold', 'text-white', 'hover:bg-blue-700', 'disabled:cursor-not-allowed', 'disabled:opacity-50');
 	confirmButton.textContent = 'OK';
 	optionsElement.append(confirmButton);
 
 	const cancelButton = document.createElement('button');
 	cancelButton.type = 'button';
-	cancelButton.classList.add('button', 'button-secondary', 'u-ml5');
+	cancelButton.classList.add('button', 'button-secondary', 'u-ml5', 'inline-flex', 'min-h-9', 'items-center', 'justify-center', 'gap-1.5', 'rounded-lg', 'border', 'border-blue-600', 'bg-blue-600', 'px-4', 'py-1.5', 'text-sm', 'font-semibold', 'text-white', 'hover:bg-blue-700', 'disabled:cursor-not-allowed', 'disabled:opacity-50', 'border-slate-300!', 'bg-white!', 'text-slate-700!', 'hover:bg-slate-50!', 'ml-[5px]');
 	cancelButton.textContent = 'Cancel';
 	if (targetUrl) {
 		optionsElement.append(cancelButton);

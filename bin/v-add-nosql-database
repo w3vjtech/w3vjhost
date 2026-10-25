@@ -1,0 +1,78 @@
+#!/bin/bash
+# info: add a user-scoped MongoDB database or Redis namespace
+# options: USER TYPE NAME
+#
+# example: v-add-nosql-database admin mongodb app
+
+user=$1
+type=$2
+name=$3
+
+source /etc/hestiacp/hestia.conf
+source "$HESTIA/func/main.sh"
+source "$HESTIA/func/nosql.sh"
+source_conf "$HESTIA/conf/hestia.conf"
+
+check_args '3' "$#" 'USER TYPE NAME'
+is_format_valid 'user'
+is_type_valid 'mongodb redis' "$type"
+nosql_validate_name "$name"
+is_object_valid 'user' 'USER' "$user"
+is_object_unsuspended 'user' 'USER' "$user"
+USER_DATA="$HESTIA/data/users/$user"
+record_file=$(nosql_record_file "$type")
+if grep -Fq "NAME='$name' " "$record_file" 2>/dev/null; then
+	check_result "$E_EXISTS" "NoSQL database $name already exists"
+fi
+is_package_full 'DATABASES'
+check_hestia_demo_mode
+
+if [ "$type" = "mongodb" ]; then
+	nosql_load_service_config mongodb
+	command -v mongosh >/dev/null 2>&1 || check_result "$E_DISABLED" "mongosh is not installed"
+	database=$(nosql_object_name "$user" "$name")
+	if [ "${#database}" -gt 63 ]; then
+		check_result "$E_INVALID" "MongoDB database name exceeds 63 characters; choose a shorter name"
+	fi
+	dbuser="$database"
+	NOSQL_NEW_PASSWORD=$(nosql_random_password)
+	statement="const existing=client.getDB('admin').runCommand({listDatabases:1,nameOnly:true}); if(existing.ok!==1) throw new Error('Unable to inspect MongoDB databases'); if(existing.databases.some(item=>item.name==='$database')) throw new Error('MongoDB database already exists'); client.getDB('$database').createUser({user:'$dbuser',pwd:'$NOSQL_NEW_PASSWORD',roles:[{role:'readWrite',db:'$database'}]});"
+	if ! nosql_mongodb_eval "$statement"; then
+		check_result "$E_DB" "failed to create MongoDB database or scoped user"
+	fi
+	if ! nosql_append_record "$type" "$name" "$database" "$dbuser" ""; then
+		nosql_mongodb_eval "const target=client.getDB('$database'); if(target.getUser('$dbuser')) target.dropUser('$dbuser'); target.dropDatabase();" >/dev/null 2>&1
+		check_result "$E_UPDATE" "failed to save NoSQL database record"
+	fi
+else
+	nosql_load_service_config redis
+	command -v redis-cli >/dev/null 2>&1 || check_result "$E_DISABLED" "redis-cli is not installed"
+	dbuser=$(nosql_object_name "$user" "$name")
+	output=$(nosql_redis_cli ACL GETUSER "$dbuser")
+	if [ "$?" -ne 0 ]; then
+		check_result "$E_DB" "failed to inspect Redis ACL user"
+	fi
+	if [ -n "$output" ]; then
+		check_result "$E_EXISTS" "Redis ACL user already exists for this entry"
+	fi
+	database="$name"
+	namespace_id=$(nosql_random_password)
+	namespace="${dbuser}:${namespace_id}:"
+	NOSQL_NEW_PASSWORD=$(nosql_random_password)
+	if ! nosql_redis_set_user "$dbuser" "${namespace}*" "$NOSQL_NEW_PASSWORD"; then
+		nosql_redis_cli ACL DELUSER "$dbuser" >/dev/null 2>&1
+		nosql_redis_cli ACL SAVE >/dev/null 2>&1
+		check_result "$E_DB" "failed to create Redis ACL user"
+	fi
+	if ! nosql_append_record "$type" "$name" "$database" "$dbuser" "$namespace"; then
+		nosql_redis_cli ACL DELUSER "$dbuser" >/dev/null 2>&1
+		nosql_redis_cli ACL SAVE >/dev/null 2>&1
+		check_result "$E_UPDATE" "failed to save NoSQL database record"
+	fi
+fi
+
+increase_user_value "$user" '$U_DATABASES'
+$BIN/v-log-action "$user" "Info" "Databases" "Added $type database $name."
+log_event "$OK" "$ARGUMENTS"
+printf '%s\n' "$NOSQL_NEW_PASSWORD"
+exit

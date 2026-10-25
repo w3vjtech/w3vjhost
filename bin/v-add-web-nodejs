@@ -1,0 +1,130 @@
+#!/bin/bash
+# info: add Node.js version
+# options: VERSION
+#
+# example: v-add-web-nodejs 22
+#
+# Install the latest release of a Node.js major version for applications.
+
+#----------------------------------------------------------#
+#                Variables & Functions                     #
+#----------------------------------------------------------#
+
+# Argument definition
+version=$1
+
+# Includes
+# shellcheck source=/etc/hestiacp/hestia.conf
+source /etc/hestiacp/hestia.conf
+# shellcheck source=/usr/local/hestia/func/main.sh
+source $HESTIA/func/main.sh
+# shellcheck source=/usr/local/hestia/func/runtime.sh
+source $HESTIA/func/runtime.sh
+# load config file
+source_conf "$HESTIA/conf/hestia.conf"
+source_conf "$HESTIA/install/upgrade/upgrade.conf"
+
+#----------------------------------------------------------#
+#                    Verifications                         #
+#----------------------------------------------------------#
+
+check_args '1' "$#" 'VERSION'
+
+# Verify Node.js version format
+if [[ ! $version =~ ^[0-9]+$ ]]; then
+	echo "The specified Node.js version format is invalid, it should be a major version."
+	echo "Example: 20, 22, 24"
+	exit "$E_INVALID"
+fi
+
+# Check if Node.js version already exists
+if [ -x "$W3VJ_NODEJS_DIR/$version/bin/node" ] && [ -f "$WEBTPL/nodejs/NODE-$version.tpl" ]; then
+	echo "ERROR: Specified Node.js version is already installed."
+	exit "$E_INVALID"
+fi
+
+# Check if Node.js version is supported
+# shellcheck disable=SC2046 # one argument per version
+if ! is_runtime_version_supported "$version" $(runtime_supported_versions multinode_v); then
+	echo "ERROR: Specified Node.js version is not supported or does not exist."
+	exit "$E_INVALID"
+fi
+
+arch=$(nodejs_arch)
+if [ -z "$arch" ]; then
+	echo "ERROR: Node.js is not supported on $(uname -m)."
+	exit "$E_INVALID"
+fi
+
+# Perform verification if read-only mode is enabled
+check_hestia_demo_mode
+
+#----------------------------------------------------------#
+#                       Action                             #
+#----------------------------------------------------------#
+
+url="https://nodejs.org/dist/latest-v$version.x"
+tmp=$(mktemp -d)
+
+# Download release checksums and find the archive for this architecture
+if ! wget --quiet --retry-connrefused "$url/SHASUMS256.txt" -O "$tmp/SHASUMS256.txt"; then
+	rm -rf "$tmp"
+	echo "ERROR: Unable to download Node.js $version release information."
+	log_event "$E_CONNECT" "$ARGUMENTS"
+	exit "$E_CONNECT"
+fi
+file=$(grep -oE "node-v[0-9.]+-linux-$arch\.tar\.xz$" "$tmp/SHASUMS256.txt" | head -n 1)
+if [ -z "$file" ]; then
+	rm -rf "$tmp"
+	echo "ERROR: No Node.js $version release found for linux-$arch."
+	exit "$E_NOTEXIST"
+fi
+
+# Download and verify the archive
+echo "Installing Node.js $version, please wait..."
+if ! wget --quiet --retry-connrefused "$url/$file" -O "$tmp/$file"; then
+	rm -rf "$tmp"
+	echo "ERROR: Unable to download $file."
+	log_event "$E_CONNECT" "$ARGUMENTS"
+	exit "$E_CONNECT"
+fi
+if ! (cd "$tmp" && grep " $file\$" SHASUMS256.txt | sha256sum --check --status); then
+	rm -rf "$tmp"
+	echo "ERROR: Checksum verification failed for $file."
+	log_event "$E_INVALID" "$ARGUMENTS"
+	exit "$E_INVALID"
+fi
+
+# Unpack into /opt/w3vj/nodejs/VERSION
+rm -rf "$W3VJ_NODEJS_DIR/$version"
+mkdir -p "$W3VJ_NODEJS_DIR/$version"
+tar -xJf "$tmp/$file" -C "$W3VJ_NODEJS_DIR/$version" --strip-components=1 --no-same-owner
+rm -rf "$tmp"
+chown -R root:root "$W3VJ_NODEJS_DIR/$version"
+chmod -R go-w "$W3VJ_NODEJS_DIR/$version"
+
+# Check if installation was successful
+if [ ! -x "$W3VJ_NODEJS_DIR/$version/bin/node" ]; then
+	echo "ERROR: Installation of Node.js $version failed."
+	log_event "$E_UPDATE" "$ARGUMENTS"
+	exit "$E_UPDATE"
+fi
+
+# Install app template
+mkdir -p "$WEBTPL/nodejs"
+cp -f "$HESTIA_INSTALL_DIR/nodejs/multinode.tpl" "$WEBTPL/nodejs/NODE-$version.tpl"
+
+# First installed version becomes the system default
+if [ -z "$(runtime_default_version "$W3VJ_NODEJS_DIR")" ]; then
+	$BIN/v-change-sys-nodejs "$version" > /dev/null
+fi
+
+#----------------------------------------------------------#
+#                       Hestia                             #
+#----------------------------------------------------------#
+
+# Logging
+$BIN/v-log-action "system" "Info" "System" "Installed Node.js $version."
+log_event "$OK" "$ARGUMENTS"
+
+exit

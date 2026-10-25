@@ -29,18 +29,14 @@ keygen() {
 	local LENGTH=${1:-20}
 	local USE_SPECIAL_CHARACTERS="${2:-no}"
 
-	local MATRIX='0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz'
+	# Same characters as before, but from the kernel CSPRNG: $RANDOM is a predictable 15-bit generator
+	local MATRIX='0-9A-Za-z'
 	if [[ "$USE_SPECIAL_CHARACTERS" == "yes" ]]; then
-		MATRIX+='_-='
+		MATRIX+='_=-'
 	fi
 
-	local PASS N
-	while [ ${N:=1} -le $LENGTH ]; do
-		PASS="$PASS${MATRIX:$(($RANDOM % ${#MATRIX})):1}"
-		let N+=1
-	done
-
-	echo "$PASS"
+	LC_ALL=C tr -dc "$MATRIX" < /dev/urandom | head -c "$LENGTH"
+	echo
 }
 
 access_key_id="$(keygen)"

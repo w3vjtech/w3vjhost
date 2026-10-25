@@ -1,0 +1,64 @@
+#!/bin/bash
+# info: stop web domain application
+# options: USER DOMAIN
+#
+# example: v-stop-web-domain-app admin example.com
+#
+# This function stops the application of a web domain and keeps it stopped
+# after reboots and rebuilds until it is started again.
+
+#----------------------------------------------------------#
+#                Variables & Functions                     #
+#----------------------------------------------------------#
+
+# Argument definition
+user=$1
+domain=$2
+
+# Includes
+# shellcheck source=/etc/hestiacp/hestia.conf
+source /etc/hestiacp/hestia.conf
+# shellcheck source=/usr/local/hestia/func/main.sh
+source $HESTIA/func/main.sh
+# shellcheck source=/usr/local/hestia/func/runtime.sh
+source $HESTIA/func/runtime.sh
+# load config file
+source_conf "$HESTIA/conf/hestia.conf"
+
+# Additional argument formatting
+format_domain
+format_domain_idn
+
+#----------------------------------------------------------#
+#                    Verifications                         #
+#----------------------------------------------------------#
+
+check_args '2' "$#" 'USER DOMAIN'
+is_format_valid 'user' 'domain'
+is_object_valid 'user' 'USER' "$user"
+is_object_valid 'web' 'DOMAIN' "$domain"
+if [ -z "$(get_web_app_value 'APP_TEMPLATE')" ]; then
+	check_result "$E_NOTEXIST" "$domain doesn't run an application"
+fi
+
+# Perform verification if read-only mode is enabled
+check_hestia_demo_mode
+
+#----------------------------------------------------------#
+#                       Action                             #
+#----------------------------------------------------------#
+
+prepare_web_app_paths
+systemctl disable --now "$app_unit" > /dev/null 2>&1
+rm -f "$app_socket"
+update_object_value 'web' 'DOMAIN' "$domain" '$APP_STATUS' 'stopped'
+
+#----------------------------------------------------------#
+#                       Hestia                             #
+#----------------------------------------------------------#
+
+# Logging
+$BIN/v-log-action "$user" "Info" "Web" "Application stopped (Domain: $domain)."
+log_event "$OK" "$ARGUMENTS"
+
+exit

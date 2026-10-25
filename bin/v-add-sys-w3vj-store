@@ -1,0 +1,219 @@
+#!/bin/bash
+# info: install the W3VJHOST store (marketing site, Razorpay subscriptions, automatic accounts)
+# options: DOMAIN [OWNER] [SSL]
+#
+# example: v-add-sys-w3vj-store w3vjtech.com
+# example: v-add-sys-w3vj-store shop.w3vj.test w3vjadmin selfsigned
+#
+# Creates the web domain (if needed) for OWNER (default: the admin user), an HTTPS certificate
+# (SSL: letsencrypt, selfsigned for labs, or none to keep the current one), the store database,
+# a panel API key limited to the "w3vj-store" permission set, and an hourly maintenance cron job.
+# The store code runs as OWNER, never as root. Add Razorpay keys afterwards with
+# `v-w3vj-store set-keys` and plans with `v-w3vj-store add-plan`.
+
+#----------------------------------------------------------#
+#                Variables & Functions                     #
+#----------------------------------------------------------#
+
+# Argument definition
+domain=$(echo "$1" | tr '[:upper:]' '[:lower:]')
+owner=$2
+ssl=${3-letsencrypt}
+
+# Includes
+# shellcheck source=/etc/hestiacp/hestia.conf
+source /etc/hestiacp/hestia.conf
+# shellcheck source=/usr/local/hestia/func/main.sh
+source $HESTIA/func/main.sh
+# load config file
+source_conf "$HESTIA/conf/hestia.conf"
+
+# WSL appends the Windows PATH; use Linux tools only
+export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+CONF="$HESTIA/conf/w3vj-store.conf"
+SRC="$HESTIA_INSTALL_DIR/w3vj-store"
+owner=${owner:-$ROOT_USER}
+
+#----------------------------------------------------------#
+#                    Verifications                         #
+#----------------------------------------------------------#
+
+check_args '1' "$#" 'DOMAIN [OWNER] [SSL]'
+if [ "$(id -u)" != '0' ]; then
+	echo "ERROR: v-add-sys-w3vj-store can only be executed by the root user" >&2
+	exit "$E_FORBIDEN"
+fi
+is_format_valid 'domain'
+is_object_valid 'user' 'USER' "$owner"
+if [[ ! "$ssl" =~ ^(letsencrypt|selfsigned|none)$ ]]; then
+	echo "ERROR: SSL must be letsencrypt, selfsigned or none" >&2
+	exit "$E_INVALID"
+fi
+if [ -f "$CONF" ]; then
+	echo "ERROR: the store is already installed ($CONF)" >&2
+	exit "$E_EXISTS"
+fi
+if [ ! -d "$SRC/public" ] || [ ! -d "$SRC/app" ]; then
+	echo "ERROR: store files not found in $SRC" >&2
+	exit "$E_NOTEXIST"
+fi
+if [ "$API" != 'yes' ] || [ "${API_SYSTEM:-0}" -lt 1 ]; then
+	echo "ERROR: the panel API is disabled; enable it under Server > Configure > API (or v-change-sys-api enable)" >&2
+	exit "$E_DISABLED"
+fi
+for module in curl pdo_mysql; do
+	if ! php -m 2> /dev/null | grep -qx "$module"; then
+		echo "ERROR: PHP CLI module $module is missing" >&2
+		exit "$E_NOTEXIST"
+	fi
+done
+
+# Perform verification if read-only mode is enabled
+check_hestia_demo_mode
+
+#----------------------------------------------------------#
+#                       Action                             #
+#----------------------------------------------------------#
+
+web="$HOMEDIR/$owner/web/$domain"
+panel_host=$(hostname -f)
+panel_port=${BACKEND_PORT:-8083}
+
+# Web domain
+if ! $BIN/v-list-web-domain "$owner" "$domain" > /dev/null 2>&1; then
+	$BIN/v-add-web-domain "$owner" "$domain" || exit $?
+fi
+
+# HTTPS (the checkout's session cookie is Secure-only)
+if [ ! -e "$HESTIA/data/users/$owner/ssl/$domain.crt" ]; then
+	case "$ssl" in
+		letsencrypt)
+			if ! $BIN/v-add-letsencrypt-domain "$owner" "$domain"; then
+				echo "ERROR: Let's Encrypt failed (does $domain point to this server?). For a lab, rerun with SSL=selfsigned" >&2
+				exit "$E_CONNECT"
+			fi
+			;;
+		selfsigned)
+			tmp=$(mktemp -d)
+			openssl req -x509 -newkey rsa:2048 -nodes -days 825 -subj "/CN=$domain/O=$APP_NAME" \
+				-addext "subjectAltName=DNS:$domain" -keyout "$tmp/$domain.key" -out "$tmp/$domain.crt" > /dev/null 2>&1
+			$BIN/v-add-web-domain-ssl "$owner" "$domain" "$tmp" || { rm -rf "$tmp"; exit "$E_INVALID"; }
+			rm -rf "$tmp"
+			;;
+	esac
+fi
+if [ -e "$HESTIA/data/users/$owner/ssl/$domain.crt" ]; then
+	$BIN/v-add-web-domain-ssl-force "$owner" "$domain" > /dev/null 2>&1
+	# HSTS only with a real certificate: browsers can't click through a self-signed one with HSTS
+	if [ "$ssl" = 'letsencrypt' ]; then
+		$BIN/v-add-web-domain-ssl-hsts "$owner" "$domain" > /dev/null 2>&1
+	fi
+else
+	echo "WARNING: $domain has no HTTPS certificate; checkout needs HTTPS to work" >&2
+fi
+
+# Database (named ${owner}_store by v-add-database)
+dbpass=$(generate_password 'A-Za-z0-9' 32)
+dbname="${owner}_store"
+if $BIN/v-list-database "$owner" "$dbname" > /dev/null 2>&1; then
+	# Left by an earlier, interrupted install: reuse it with a new password
+	$BIN/v-change-database-password "$owner" "$dbname" "$dbpass" || exit $?
+else
+	$BIN/v-add-database "$owner" store store "$dbpass" mysql || exit $?
+fi
+
+# The store calls the API from this server. An empty API_ALLOWED_IP admits nobody
+# (web/api/index.php), so add 127.0.0.1 unless everything is already allowed.
+if [ "$API_ALLOWED_IP" != 'allow-all' ] && [[ ",$API_ALLOWED_IP," != *",127.0.0.1,"* ]] && [[ ",$API_ALLOWED_IP," != *",0.0.0.0,"* ]]; then
+	$BIN/v-change-sys-config-value 'API_ALLOWED_IP' "${API_ALLOWED_IP:+$API_ALLOWED_IP,}127.0.0.1"
+fi
+
+# API permission set + key (acts as the admin, limited to the commands in the set)
+cp -f "$HESTIA_COMMON_DIR/api/w3vj-store" "$HESTIA/data/api/w3vj-store"
+chmod 644 "$HESTIA/data/api/w3vj-store"
+if ! key_json=$($BIN/v-add-access-key "$ROOT_USER" w3vj-store "W3VJHOST store" json); then
+	echo "ERROR: could not create the panel API key: $key_json" >&2
+	exit "$E_INVALID"
+fi
+access_key=$(echo "$key_json" | php -r '$k = json_decode(stream_get_contents(STDIN), true); echo $k["ACCESS_KEY_ID"] ?? "";')
+secret_key=$(echo "$key_json" | php -r '$k = json_decode(stream_get_contents(STDIN), true); echo $k["SECRET_ACCESS_KEY"] ?? "";')
+if [ -z "$access_key" ] || [ -z "$secret_key" ]; then
+	echo "ERROR: could not create the panel API key" >&2
+	exit "$E_INVALID"
+fi
+
+# Files: public pages into public_html, code and config into private/store (not web-reachable)
+rm -f "$web/public_html/index.html"
+cp -rf "$SRC/public/." "$web/public_html/"
+mkdir -p "$web/private/store"
+cp -rf "$SRC/app/." "$web/private/store/"
+logo="$HESTIA/web/images/logo.svg"
+[ -f "$HESTIA/web/images/custom/logo.svg" ] && logo="$HESTIA/web/images/custom/logo.svg"
+cp -f "$logo" "$web/public_html/assets/logo.svg"
+
+# Trust the panel certificate for API calls when it is self-signed (no TLS checks are disabled)
+cafile=""
+if [ "$(openssl x509 -in "$HESTIA/ssl/certificate.crt" -noout -subject 2> /dev/null | cut -d= -f2-)" = \
+	"$(openssl x509 -in "$HESTIA/ssl/certificate.crt" -noout -issuer 2> /dev/null | cut -d= -f2-)" ]; then
+	cp -f "$HESTIA/ssl/certificate.crt" "$web/private/store/panel-ca.pem"
+	cafile="$web/private/store/panel-ca.pem"
+fi
+
+admin_email=$($BIN/v-list-user "$ROOT_USER" json | php -r '$u = json_decode(stream_get_contents(STDIN), true); echo reset($u)["CONTACT"] ?? "";')
+
+# config.json, written by PHP so every value is JSON-escaped
+umask 077
+STORE_DOMAIN="$domain" STORE_SITE="$APP_NAME" STORE_PANEL="https://$panel_host:$panel_port/" \
+	STORE_API="https://$panel_host:$panel_port/api/" STORE_RESOLVE="$panel_host:$panel_port:127.0.0.1" \
+	STORE_CAFILE="$cafile" STORE_AK="$access_key" STORE_SK="$secret_key" \
+	STORE_DBNAME="$dbname" STORE_DBPASS="$dbpass" STORE_ADMIN="$admin_email" \
+	php -r '
+	$e = fn($k) => (string) getenv($k);
+	echo json_encode([
+		"site_name" => $e("STORE_SITE") ?: "W3VJHOST",
+		"business_name" => $e("STORE_SITE") ?: "W3VJHOST",
+		"domain" => $e("STORE_DOMAIN"),
+		"panel_url" => $e("STORE_PANEL"),
+		"mail_from" => "noreply@" . $e("STORE_DOMAIN"),
+		"admin_email" => $e("STORE_ADMIN"),
+		"contact_email" => $e("STORE_ADMIN"),
+		"db" => ["host" => "localhost", "name" => $e("STORE_DBNAME"), "user" => $e("STORE_DBNAME"), "pass" => $e("STORE_DBPASS")],
+		"hestia" => [
+			"url" => $e("STORE_API"),
+			"access_key" => $e("STORE_AK"),
+			"secret_key" => $e("STORE_SK"),
+			"cafile" => $e("STORE_CAFILE") ?: null,
+			"resolve" => $e("STORE_RESOLVE"),
+		],
+		"razorpay" => ["key_id" => "", "key_secret" => "", "webhook_secret" => ""],
+	], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES), PHP_EOL;
+	' > "$web/private/store/config.json"
+umask 022
+
+chown -R "$owner:$owner" "$web/public_html" "$web/private/store"
+chmod 700 "$web/private/store"
+chmod 600 "$web/private/store/config.json"
+
+# Tables, maintenance cron, install record
+runuser -u "$owner" -- php "$web/private/store/cli.php" init-db || exit $?
+$BIN/v-add-cron-job "$owner" '17' '*' '*' '*' '*' "php $web/private/store/cli.php maintain --quiet" > /dev/null
+echo "DOMAIN='$domain'" > "$CONF"
+echo "OWNER='$owner'" >> "$CONF"
+echo "ACCESS_KEY='$access_key'" >> "$CONF"
+chmod 600 "$CONF"
+
+echo "Store installed: https://$domain/"
+echo "Next steps:"
+echo "  1. v-w3vj-store set-keys        (Razorpay key id, key secret, webhook secret)"
+echo "  2. v-w3vj-store add-plan default 499 monthly \"Starter\""
+echo "  3. Razorpay webhook URL: https://$domain/api/webhook.php"
+echo "  4. v-w3vj-store set business_name / contact_phone / contact_address, then review the policy pages"
+
+#----------------------------------------------------------#
+#                       Hestia                             #
+#----------------------------------------------------------#
+
+$BIN/v-log-action "system" "Info" "System" "W3VJHOST store installed (Domain: $domain, Owner: $owner)."
+log_event "$OK" "$ARGUMENTS"
+
+exit

@@ -1,0 +1,73 @@
+#!/bin/bash
+# info: delete Redis server
+# options: [DELETE_DATA]
+#
+# example: v-delete-sys-redis
+# example: v-delete-sys-redis yes
+#
+# Removes Redis. The data in /var/lib/redis is kept unless DELETE_DATA is yes.
+
+#----------------------------------------------------------#
+#                Variables & Functions                     #
+#----------------------------------------------------------#
+
+# Argument definition
+delete_data=${1-no}
+
+# Includes
+# shellcheck source=/etc/hestiacp/hestia.conf
+source /etc/hestiacp/hestia.conf
+# shellcheck source=/usr/local/hestia/func/main.sh
+source $HESTIA/func/main.sh
+# load config file
+source_conf "$HESTIA/conf/hestia.conf"
+
+export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+CONF="$HESTIA/conf/redis.conf"
+
+#----------------------------------------------------------#
+#                    Verifications                         #
+#----------------------------------------------------------#
+
+if [ "$(id -u)" != '0' ]; then
+	echo "ERROR: v-delete-sys-redis can only be executed by the root user" >&2
+	exit "$E_FORBIDEN"
+fi
+is_type_valid 'yes no' "$delete_data"
+if [ ! -f "$CONF" ]; then
+	echo "ERROR: Redis isn't installed by W3VJHOST" >&2
+	exit "$E_NOTEXIST"
+fi
+shopt -s nullglob
+for record in "$HESTIA"/data/users/*/nosql-redis.conf; do
+	if [ -s "$record" ]; then
+		echo "ERROR: remove all managed Redis databases before uninstalling Redis" >&2
+		exit "$E_INUSE"
+	fi
+done
+
+# Perform verification if read-only mode is enabled
+check_hestia_demo_mode
+
+#----------------------------------------------------------#
+#                       Action                             #
+#----------------------------------------------------------#
+
+parse_object_kv_list "$(cat "$CONF")"
+systemctl disable --now "${SERVICE:-redis-server.service}" > /dev/null 2>&1
+DEBIAN_FRONTEND=noninteractive apt-get -y -qq purge redis redis-server redis-tools > /dev/null 2>&1
+rm -f /etc/apt/sources.list.d/redis.list /usr/share/keyrings/redis-archive-keyring.gpg
+if [ "$delete_data" = 'yes' ]; then
+	rm -rf /var/lib/redis /var/log/redis
+fi
+rm -f "$CONF"
+
+#----------------------------------------------------------#
+#                       Hestia                             #
+#----------------------------------------------------------#
+
+[ "$delete_data" = 'yes' ] || echo "Redis removed; data kept in /var/lib/redis"
+$BIN/v-log-action "system" "Info" "Plugins" "Redis removed (data deleted: $delete_data)."
+log_event "$OK" "$ARGUMENTS"
+
+exit

@@ -30,8 +30,8 @@ function handlePasswordInputChange() {
 	});
 }
 
-function handleGeneratePasswordClick() {
-	document.querySelectorAll('.js-ftp-password-generate').forEach((generateButton) => {
+function handleGeneratePasswordClick(root = document) {
+	root.querySelectorAll('.js-ftp-password-generate').forEach((generateButton) => {
 		generateButton.addEventListener('click', () => {
 			const ftpPasswordInput =
 				generateButton.parentElement.parentElement.querySelector('.js-ftp-user-psw');
@@ -45,12 +45,14 @@ function handleGeneratePasswordClick() {
 function handleAddAccountClick() {
 	const addFtpAccountButton = document.querySelector('.js-add-ftp-account');
 	if (addFtpAccountButton) {
+		// Never reuse an index: new accounts can be removed from the DOM, so the
+		// current account count may equal an index that is still in use
+		let nextIndex = document.querySelectorAll('.js-active-ftp-accounts .js-ftp-account').length;
 		addFtpAccountButton.addEventListener('click', () => {
 			const template = document
 				.querySelector('.js-ftp-account-template .js-ftp-account-nrm')
 				.cloneNode(true);
-			const ftpAccounts = document.querySelectorAll('.js-active-ftp-accounts .js-ftp-account');
-			const newIndex = ftpAccounts.length;
+			const newIndex = nextIndex++;
 
 			template.querySelectorAll('input').forEach((input) => {
 				const name = input.getAttribute('name');
@@ -61,7 +63,7 @@ function handleAddAccountClick() {
 				}
 			});
 
-			template.querySelectorAll('input + label').forEach((label) => {
+			template.querySelectorAll('label[for*="%INDEX%"]').forEach((label) => {
 				const forAttr = label.getAttribute('for');
 				label.setAttribute('for', forAttr.replace('%INDEX%', newIndex));
 			});
@@ -71,24 +73,25 @@ function handleAddAccountClick() {
 
 			updateUserNumbers();
 
-			// Refresh input listeners
-			handleFtpAccountHints();
-			handleGeneratePasswordClick();
-			handleDeleteAccountClick();
+			// Attach listeners to the new account only (cloneNode drops them)
+			handleFtpAccountHints(template);
+			handleGeneratePasswordClick(template);
+			handleDeleteAccountClick(template);
 		});
 	}
 }
 
-function handleDeleteAccountClick() {
-	document.querySelectorAll('.js-delete-ftp-account').forEach((deleteButton) => {
+function handleDeleteAccountClick(root = document) {
+	root.querySelectorAll('.js-delete-ftp-account').forEach((deleteButton) => {
 		deleteButton.addEventListener('click', () => {
 			const ftpAccount = deleteButton.closest('.js-ftp-account');
 			ftpAccount.querySelector('.js-ftp-user-deleted').value = '1';
 			if (ftpAccount.querySelector('.js-ftp-user-is-new').value == 1) {
-				return ftpAccount.remove();
+				ftpAccount.remove();
+			} else {
+				ftpAccount.classList.remove('js-ftp-account-nrm');
+				ftpAccount.style.display = 'none';
 			}
-			ftpAccount.classList.remove('js-ftp-account-nrm');
-			ftpAccount.style.display = 'none';
 
 			updateUserNumbers();
 
@@ -101,7 +104,10 @@ function handleDeleteAccountClick() {
 }
 
 function updateUserNumbers() {
-	const ftpUserNumbers = document.querySelectorAll('.js-active-ftp-accounts .js-ftp-user-number');
+	// Deleted existing accounts stay in the DOM (hidden) until save; don't count them
+	const ftpUserNumbers = document.querySelectorAll(
+		'.js-active-ftp-accounts .js-ftp-account-nrm .js-ftp-user-number',
+	);
 	ftpUserNumbers.forEach((number, index) => {
 		number.textContent = index + 1;
 	});
@@ -145,11 +151,11 @@ function insertEmailField(ftpPasswordInput) {
 	const hiddenIsNewInput = accountWrapper.querySelector('.js-ftp-user-is-new');
 	const inputName = hiddenIsNewInput.name.replace('is_new', 'v_ftp_email');
 	const emailFieldHTML = `
-		<div class="u-pl30 u-mb10">
-			<label for="${inputName}" class="form-label">
+		<div class="u-pl30 u-mb10 pl-[30px] mb-[10px]">
+			<label for="${inputName}" class="form-label mb-1 block text-sm font-semibold text-slate-700">
 				Send FTP credentials to email
 			</label>
-			<input type="email" class="form-control js-email-alert-on-psw"
+			<input type="email" class="form-control js-email-alert-on-psw block min-h-9 w-full min-w-0 rounded-lg border border-slate-400 bg-white px-3 py-2 text-sm text-slate-700 focus:border-blue-600 focus:outline-2 focus:outline-blue-200"
 				value="" name="${inputName}" id="${inputName}">
 		</div>`;
 	accountWrapper.insertAdjacentHTML('beforeend', emailFieldHTML);

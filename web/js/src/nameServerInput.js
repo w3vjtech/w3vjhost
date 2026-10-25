@@ -21,7 +21,24 @@ function addNsInput(addNsButton) {
 		const templateNsInput = template.querySelector('input');
 
 		templateNsInput.removeAttribute('value');
+		templateNsInput.removeAttribute('id');
 		templateNsInput.name = `v_ns${inputCount + 1}`;
+
+		// The first row has no remove button; give added rows the same layout and
+		// remove button as the server-rendered extra rows
+		if (!template.querySelector('.js-remove-ns')) {
+			template.className = 'u-side-by-side u-mb5 flex flex-wrap items-center gap-2 mb-[5px]';
+			const removeButton = document.createElement('button');
+			removeButton.type = 'button';
+			removeButton.className =
+				'u-button-reset u-ml10 js-remove-ns border-0 bg-transparent p-0 ml-[10px] text-red-700';
+			removeButton.title = addNsButton.dataset.removeLabel || 'Remove';
+			removeButton.innerHTML = '<i class="fas fa-trash"></i>';
+			template.append(removeButton);
+		}
+		template
+			.querySelector('.js-remove-ns')
+			.addEventListener('click', (evt) => removeNsInput(evt.currentTarget));
 		addNsButton.before(template);
 	}
 

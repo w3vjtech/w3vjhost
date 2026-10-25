@@ -41,11 +41,12 @@ export function enterFocused() {
 export function executeShortcut(elm) {
 	const action = elm.dataset.keyAction;
 	if (action === 'js') {
-		return elm.querySelector('.data-controls').click();
+		return elm.querySelector('.data-controls')?.click();
 	}
 
-	if (action === 'href') {
-		location.href = elm.querySelector('a').getAttribute('href');
+	const link = elm.querySelector('a');
+	if (action === 'href' && link) {
+		location.href = link.getAttribute('href');
 	}
 }
 

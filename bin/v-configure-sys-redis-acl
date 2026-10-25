@@ -1,0 +1,93 @@
+#!/bin/bash
+# info: configure persistent Redis ACL storage
+# options: none
+#
+# example: v-configure-sys-redis-acl
+#
+# Existing Redis installations must run this once before Hestia can create
+# per-user Redis namespaces. The command restarts Redis.
+
+source /etc/hestiacp/hestia.conf
+source "$HESTIA/func/main.sh"
+source_conf "$HESTIA/conf/hestia.conf"
+
+if [ "$(id -u)" != "0" ]; then
+	echo "ERROR: v-configure-sys-redis-acl can only be executed by the root user" >&2
+	exit "$E_FORBIDEN"
+fi
+check_args '0' "$#" 'none'
+CONF="$HESTIA/conf/redis.conf"
+RCONF=/etc/redis/redis.conf
+ACLFILE=/etc/redis/users.acl
+if [ ! -f "$CONF" ] || [ ! -f "$RCONF" ]; then
+	check_result "$E_NOTEXIST" "Redis isn't installed by W3VJHOST"
+fi
+check_hestia_demo_mode
+parse_object_kv_list "$(cat "$CONF")"
+redis_password=$PASSWORD
+redis_port=${PORT-6379}
+redis_service=${SERVICE-redis-server.service}
+
+if grep -Eq '^[[:space:]]*aclfile[[:space:]]+/etc/redis/users\.acl$' "$RCONF" && [ -f "$ACLFILE" ]; then
+	echo "Redis ACL persistence is already configured."
+	exit
+fi
+
+acl_backup=$(mktemp) || check_result "$E_UPDATE" "failed to create a Redis ACL backup"
+redis_conf_backup=$(mktemp) || {
+	rm -f "$acl_backup"
+	check_result "$E_UPDATE" "failed to create a Redis configuration backup"
+}
+acl_file_backup=$(mktemp) || {
+	rm -f "$acl_backup" "$redis_conf_backup"
+	check_result "$E_UPDATE" "failed to create an ACL file backup"
+}
+cp -p "$RCONF" "$redis_conf_backup" || check_result "$E_UPDATE" "failed to back up Redis configuration"
+acl_file_existed=false
+if [ -f "$ACLFILE" ]; then
+	cp -p "$ACLFILE" "$acl_file_backup" || check_result "$E_UPDATE" "failed to back up the existing Redis ACL file"
+	acl_file_existed=true
+fi
+REDISCLI_AUTH="$redis_password" redis-cli -h 127.0.0.1 -p "$redis_port" --raw ACL LIST > "$acl_backup"
+if [ "$?" -ne 0 ] || ! grep -q '^user default ' "$acl_backup"; then
+	rm -f "$acl_backup" "$redis_conf_backup" "$acl_file_backup"
+	check_result "$E_CONNECT" "unable to read the current Redis ACL users"
+fi
+
+restore_redis_config() {
+	cp -p "$redis_conf_backup" "$RCONF"
+	if [ "$acl_file_existed" = true ]; then
+		cp -p "$acl_file_backup" "$ACLFILE"
+	else
+		rm -f "$ACLFILE"
+	fi
+	systemctl restart "$redis_service" >/dev/null 2>&1
+	rm -f "$acl_backup" "$redis_conf_backup" "$acl_file_backup"
+}
+
+install -o redis -g redis -m 640 "$acl_backup" "$ACLFILE" ||
+	{
+		restore_redis_config
+		check_result "$E_UPDATE" "failed to install the Redis ACL file"
+	}
+if ! sed -i -E '/^#? *aclfile /d' "$RCONF" ||
+	! echo "aclfile $ACLFILE" >> "$RCONF" ||
+	! chown redis:redis "$RCONF" ||
+	! chmod 640 "$RCONF"; then
+	restore_redis_config
+	check_result "$E_UPDATE" "failed to update Redis ACL configuration"
+fi
+if ! systemctl restart "$redis_service"; then
+	restore_redis_config
+	check_result "$E_RESTART" "Redis restart failed; previous configuration was restored"
+fi
+if ! REDISCLI_AUTH="$redis_password" redis-cli -h 127.0.0.1 -p "$redis_port" ping | grep -q PONG; then
+	restore_redis_config
+	check_result "$E_CONNECT" "Redis did not respond after enabling ACL persistence"
+fi
+rm -f "$acl_backup" "$redis_conf_backup" "$acl_file_backup"
+
+$BIN/v-log-action "system" "Info" "Plugins" "Persistent Redis ACL storage enabled."
+log_event "$OK" "$ARGUMENTS"
+echo "Persistent Redis ACL storage is configured."
+exit

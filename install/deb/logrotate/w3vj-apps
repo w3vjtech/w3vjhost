@@ -1,0 +1,10 @@
+/var/log/w3vj/apps/*.log {
+    rotate 4
+    weekly
+    maxsize 50M
+    missingok
+    notifempty
+    compress
+    delaycompress
+    copytruncate
+}

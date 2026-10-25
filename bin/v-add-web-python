@@ -1,0 +1,107 @@
+#!/bin/bash
+# info: add Python version
+# options: VERSION
+#
+# example: v-add-web-python 3.12
+#
+# Install a standalone CPython build of the given minor version for
+# applications. The system python3 used by the OS is never changed.
+
+#----------------------------------------------------------#
+#                Variables & Functions                     #
+#----------------------------------------------------------#
+
+# Argument definition
+version=$1
+
+# Includes
+# shellcheck source=/etc/hestiacp/hestia.conf
+source /etc/hestiacp/hestia.conf
+# shellcheck source=/usr/local/hestia/func/main.sh
+source $HESTIA/func/main.sh
+# shellcheck source=/usr/local/hestia/func/runtime.sh
+source $HESTIA/func/runtime.sh
+# load config file
+source_conf "$HESTIA/conf/hestia.conf"
+source_conf "$HESTIA/install/upgrade/upgrade.conf"
+
+#----------------------------------------------------------#
+#                    Verifications                         #
+#----------------------------------------------------------#
+
+check_args '1' "$#" 'VERSION'
+
+# Verify Python version format
+if [[ ! $version =~ ^[0-9]+\.[0-9]+$ ]]; then
+	echo "The specified Python version format is invalid, it should look like [0-9].[0-9]."
+	echo "Example: 3.11, 3.12, 3.13"
+	exit "$E_INVALID"
+fi
+
+# Check if Python version already exists
+if [ -x "$W3VJ_PYTHON_DIR/$version/bin/python3" ] && [ -f "$WEBTPL/python/PY-${version/\./_}.tpl" ]; then
+	echo "ERROR: Specified Python version is already installed."
+	exit "$E_INVALID"
+fi
+
+# Check if Python version is supported
+# shellcheck disable=SC2046 # one argument per version
+if ! is_runtime_version_supported "$version" $(runtime_supported_versions multipython_v); then
+	echo "ERROR: Specified Python version is not supported or does not exist."
+	exit "$E_INVALID"
+fi
+
+# Perform verification if read-only mode is enabled
+check_hestia_demo_mode
+
+#----------------------------------------------------------#
+#                       Action                             #
+#----------------------------------------------------------#
+
+install_uv
+export UV_PYTHON_INSTALL_DIR="$W3VJ_PYTHON_DIR/.uv"
+mkdir -p "$UV_PYTHON_INSTALL_DIR"
+
+echo "Installing Python $version, please wait..."
+if ! "$W3VJ_UV" python install --no-bin "$version" > /dev/null 2>&1; then
+	echo "ERROR: Installation of Python $version failed, please run the following command manually for debugging:"
+	echo "UV_PYTHON_INSTALL_DIR=$UV_PYTHON_INSTALL_DIR $W3VJ_UV python install --no-bin $version"
+	log_event "$E_UPDATE" "$ARGUMENTS"
+	exit "$E_UPDATE"
+fi
+
+# Link /opt/w3vj/python/VERSION to the managed installation
+python_bin=$("$W3VJ_UV" python find --python-preference only-managed "$version" 2> /dev/null)
+if [ -z "$python_bin" ] || [ ! -x "$python_bin" ]; then
+	echo "ERROR: Python $version was installed but could not be located."
+	log_event "$E_UPDATE" "$ARGUMENTS"
+	exit "$E_UPDATE"
+fi
+ln -sfn "$(dirname "$(dirname "$python_bin")")" "$W3VJ_PYTHON_DIR/$version"
+chmod -R go-w "$UV_PYTHON_INSTALL_DIR"
+
+# Check if installation was successful
+if [ ! -x "$W3VJ_PYTHON_DIR/$version/bin/python3" ]; then
+	echo "ERROR: Installation of Python $version failed."
+	log_event "$E_UPDATE" "$ARGUMENTS"
+	exit "$E_UPDATE"
+fi
+
+# Install app template
+mkdir -p "$WEBTPL/python"
+cp -f "$HESTIA_INSTALL_DIR/python/multipython.tpl" "$WEBTPL/python/PY-${version/\./_}.tpl"
+
+# First installed version becomes the system default
+if [ -z "$(runtime_default_version "$W3VJ_PYTHON_DIR")" ]; then
+	$BIN/v-change-sys-python "$version" > /dev/null
+fi
+
+#----------------------------------------------------------#
+#                       Hestia                             #
+#----------------------------------------------------------#
+
+# Logging
+$BIN/v-log-action "system" "Info" "System" "Installed Python $version."
+log_event "$OK" "$ARGUMENTS"
+
+exit

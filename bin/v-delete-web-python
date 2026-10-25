@@ -1,0 +1,84 @@
+#!/bin/bash
+# info: delete Python version
+# options: VERSION
+#
+# example: v-delete-web-python 3.11
+#
+# This function deletes a Python version if not used by any domain.
+
+#----------------------------------------------------------#
+#                Variables & Functions                     #
+#----------------------------------------------------------#
+
+# Argument definition
+version=$1
+
+# Includes
+# shellcheck source=/etc/hestiacp/hestia.conf
+source /etc/hestiacp/hestia.conf
+# shellcheck source=/usr/local/hestia/func/main.sh
+source $HESTIA/func/main.sh
+# shellcheck source=/usr/local/hestia/func/runtime.sh
+source $HESTIA/func/runtime.sh
+# load config file
+source_conf "$HESTIA/conf/hestia.conf"
+
+#----------------------------------------------------------#
+#                    Verifications                         #
+#----------------------------------------------------------#
+
+check_args '1' "$#" 'VERSION'
+
+# Verify Python version format
+if [[ ! $version =~ ^[0-9]+\.[0-9]+$ ]]; then
+	echo "The Python version format is invalid, it should look like [0-9].[0-9]."
+	echo "Example: 3.11, 3.12"
+	exit "$E_INVALID"
+fi
+
+# Check if Python version exists
+if ! runtime_versions "$W3VJ_PYTHON_DIR" | grep -qx "$version"; then
+	echo "ERROR: Specified Python version is not installed."
+	exit "$E_NOTEXIST"
+fi
+
+# Check if Python version is used by a web domain
+if is_app_template_in_use "PY-${version/\./_}"; then
+	echo "ERROR: Python $version is used by one or more web domains."
+	exit "$E_INUSE"
+fi
+
+# The system default can only be removed when it is the last version
+default=$(runtime_default_version "$W3VJ_PYTHON_DIR")
+if [ "$default" = "$version" ] && [ "$(runtime_versions "$W3VJ_PYTHON_DIR" | wc -l)" -gt 1 ]; then
+	echo "ERROR: Python $version is the system default, change the default version first."
+	exit "$E_INUSE"
+fi
+
+# Perform verification if read-only mode is enabled
+check_hestia_demo_mode
+
+#----------------------------------------------------------#
+#                       Action                             #
+#----------------------------------------------------------#
+
+# Remove app template, link and managed installation
+rm -f "$WEBTPL/python/PY-${version/\./_}.tpl"
+rm -f "$W3VJ_PYTHON_DIR/$version"
+if [ -x "$W3VJ_UV" ]; then
+	UV_PYTHON_INSTALL_DIR="$W3VJ_PYTHON_DIR/.uv" "$W3VJ_UV" python uninstall "$version" > /dev/null 2>&1
+fi
+
+if [ "$default" = "$version" ]; then
+	rm -f "$W3VJ_PYTHON_DIR/default"
+fi
+
+#----------------------------------------------------------#
+#                       Hestia                             #
+#----------------------------------------------------------#
+
+# Logging
+$BIN/v-log-action "system" "Info" "System" "Uninstalled Python $version."
+log_event "$OK" "$ARGUMENTS"
+
+exit

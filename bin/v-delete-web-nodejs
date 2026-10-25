@@ -1,0 +1,87 @@
+#!/bin/bash
+# info: delete Node.js version
+# options: VERSION
+#
+# example: v-delete-web-nodejs 20
+#
+# This function deletes a Node.js version if not used by any domain.
+
+#----------------------------------------------------------#
+#                Variables & Functions                     #
+#----------------------------------------------------------#
+
+# Argument definition
+version=$1
+
+# Includes
+# shellcheck source=/etc/hestiacp/hestia.conf
+source /etc/hestiacp/hestia.conf
+# shellcheck source=/usr/local/hestia/func/main.sh
+source $HESTIA/func/main.sh
+# shellcheck source=/usr/local/hestia/func/runtime.sh
+source $HESTIA/func/runtime.sh
+# load config file
+source_conf "$HESTIA/conf/hestia.conf"
+
+#----------------------------------------------------------#
+#                    Verifications                         #
+#----------------------------------------------------------#
+
+check_args '1' "$#" 'VERSION'
+
+# Verify Node.js version format
+if [[ ! $version =~ ^[0-9]+$ ]]; then
+	echo "The Node.js version format is invalid, it should be a major version."
+	echo "Example: 20, 22"
+	exit "$E_INVALID"
+fi
+
+# Check if Node.js version exists
+if ! runtime_versions "$W3VJ_NODEJS_DIR" | grep -qx "$version"; then
+	echo "ERROR: Specified Node.js version is not installed."
+	exit "$E_NOTEXIST"
+fi
+
+# Check if Node.js version is used by a web domain
+if is_app_template_in_use "NODE-$version"; then
+	echo "ERROR: Node.js $version is used by one or more web domains."
+	exit "$E_INUSE"
+fi
+
+# The system default can only be removed when it is the last version
+default=$(runtime_default_version "$W3VJ_NODEJS_DIR")
+if [ "$default" = "$version" ] && [ "$(runtime_versions "$W3VJ_NODEJS_DIR" | wc -l)" -gt 1 ]; then
+	echo "ERROR: Node.js $version is the system default, change the default version first."
+	exit "$E_INUSE"
+fi
+
+# Perform verification if read-only mode is enabled
+check_hestia_demo_mode
+
+#----------------------------------------------------------#
+#                       Action                             #
+#----------------------------------------------------------#
+
+# Remove app template and runtime
+rm -f "$WEBTPL/nodejs/NODE-$version.tpl"
+rm -rf "${W3VJ_NODEJS_DIR:?}/$version"
+
+# Remove default links when the last version is deleted
+if [ "$default" = "$version" ]; then
+	rm -f "$W3VJ_NODEJS_DIR/default"
+	for bin in node npm npx corepack; do
+		if [ -L "/usr/local/bin/$bin" ] && [[ $(readlink "/usr/local/bin/$bin") == "$W3VJ_NODEJS_DIR/"* ]]; then
+			rm -f "/usr/local/bin/$bin"
+		fi
+	done
+fi
+
+#----------------------------------------------------------#
+#                       Hestia                             #
+#----------------------------------------------------------#
+
+# Logging
+$BIN/v-log-action "system" "Info" "System" "Uninstalled Node.js $version."
+log_event "$OK" "$ARGUMENTS"
+
+exit

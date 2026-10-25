@@ -92,6 +92,62 @@ $v_php_versions = array_map(function ($php_version) use ($backend_templates, $ba
 	return $phpinfo;
 }, $v_php_versions);
 
+// List supported Node.js and Python versions (W3VJ application runtimes)
+exec(HESTIA_CMD . "v-list-web-templates-app json", $output, $return_var);
+$app_templates = json_decode(implode("", $output), true) ?? [];
+unset($output);
+
+$apps_active = apptpl_with_webdomains();
+
+function w3vj_runtime_versions($versions, $label, $tpl_prefix, $default, $app_templates, $apps_active) {
+	return array_map(function ($version) use ($label, $tpl_prefix, $default, $app_templates, $apps_active) {
+		$info = (object) [
+			"name" => $label . "-" . $version,
+			"tpl" => $tpl_prefix . str_replace(".", "_", $version),
+			"version" => $version,
+			"usedby" => [],
+			"installed" => false,
+			"protected" => false,
+			"default" => $version === $default,
+		];
+
+		if (in_array($info->tpl, $app_templates)) {
+			$info->installed = true;
+		}
+
+		// Prevent used or default versions to be removed
+		if (array_key_exists($info->tpl, $apps_active)) {
+			$info->protected = $info->installed;
+			$info->usedby = $apps_active[$info->tpl];
+		}
+		if ($info->default && $info->installed) {
+			$info->protected = true;
+		}
+
+		return $info;
+	}, $versions);
+}
+
+$v_nodejs_default = basename((string) @readlink("/opt/w3vj/nodejs/default"));
+$v_nodejs_versions = w3vj_runtime_versions(
+	["20", "22", "24"],
+	"node",
+	"NODE-",
+	$v_nodejs_default,
+	$app_templates,
+	$apps_active,
+);
+
+$v_python_default = basename((string) @readlink("/opt/w3vj/python/default"));
+$v_python_versions = w3vj_runtime_versions(
+	["3.10", "3.11", "3.12", "3.13"],
+	"python",
+	"PY-",
+	$v_python_default,
+	$app_templates,
+	$apps_active,
+);
+
 // List languages
 exec(HESTIA_CMD . "v-list-sys-languages json", $output, $return_var);
 $language = json_decode(implode("", $output), true);
@@ -372,6 +428,58 @@ if (!empty($_POST["save"])) {
 				//force reload
 				$require_refresh = true;
 			}
+		}
+	}
+
+	// Install/remove Node.js and Python versions and change default versions
+	$runtimes = [
+		"nodejs" => $v_nodejs_versions,
+		"python" => $v_python_versions,
+	];
+	foreach ($runtimes as $runtime => $runtime_versions) {
+		if (!empty($_SESSION["error_msg"])) {
+			break;
+		}
+		$post_versions = (array) ($_POST["v_" . $runtime . "_versions"] ?? []);
+		foreach ($runtime_versions as $runtime_version) {
+			if (!empty($_SESSION["error_msg"])) {
+				break;
+			}
+			if (array_key_exists($runtime_version->tpl, $post_versions)) {
+				if ($runtime_version->installed) {
+					continue;
+				}
+				$command = "v-add-web-" . $runtime;
+			} elseif ($runtime_version->installed && !$runtime_version->protected) {
+				$command = "v-delete-web-" . $runtime;
+			} else {
+				continue;
+			}
+			exec(
+				HESTIA_CMD . $command . " " . quoteshellarg($runtime_version->version),
+				$output,
+				$return_var,
+			);
+			check_return_code($return_var, $output);
+			unset($output);
+			if (empty($_SESSION["error_msg"])) {
+				$runtime_version->installed = $command === "v-add-web-" . $runtime;
+				// The first installed version becomes the default, reload to show it
+				$require_refresh = true;
+			}
+		}
+
+		$post_default = $_POST["v_" . $runtime . "_default_version"] ?? "";
+		$current_default = basename((string) @readlink("/opt/w3vj/" . $runtime . "/default"));
+		if (empty($_SESSION["error_msg"]) && $post_default !== "" && $post_default !== $current_default) {
+			exec(
+				HESTIA_CMD . "v-change-sys-" . $runtime . " " . quoteshellarg($post_default),
+				$output,
+				$return_var,
+			);
+			check_return_code($return_var, $output);
+			unset($output);
+			$require_refresh = true;
 		}
 	}
 

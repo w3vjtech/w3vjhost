@@ -51,7 +51,7 @@ export default function handleShortcuts() {
 				if (options.disabledInInput) {
 					// Don't enable shortcut keys in input, textarea, select fields
 					const element = evt.target.nodeType === 3 ? evt.target.parentNode : evt.target;
-					if (['input', 'textarea', 'selectbox'].includes(element.tagName.toLowerCase())) {
+					if (['input', 'textarea', 'select'].includes(element.tagName.toLowerCase())) {
 						return;
 					}
 				}
@@ -128,7 +128,11 @@ export default function handleShortcuts() {
 		.register(
 			{ key: 'A', ctrlKey: true, shiftKey: true },
 			(_evt) => {
-				const checked = document.querySelector('.js-unit-checkbox:eq(0)').checked;
+				const firstCheckbox = document.querySelector('.js-unit-checkbox');
+				if (!firstCheckbox) {
+					return;
+				}
+				const checked = firstCheckbox.checked;
 				document.querySelectorAll('.js-unit').forEach((el) => {
 					el.classList.toggle('selected', !checked);
 				});
@@ -430,19 +434,19 @@ export default function handleShortcuts() {
 		.register(
 			{ code: 'Enter' },
 			() => {
-				if (Alpine.store('form').dirty) {
-					if (document.querySelector('dialog[open]')) {
-						const dialog = document.querySelector('dialog[open]');
-						dialog.querySelector('button[type="submit"]').click();
-					} else {
+				const openDialog = document.querySelector('dialog[open]');
+				if (openDialog) {
+					openDialog.querySelector('button[type="submit"]')?.click();
+				} else if (Alpine.store('form').dirty) {
+					// Only intercept Enter when the user has picked a menu item with the arrow keys;
+					// otherwise let it submit the form as usual
+					const focusedMenuLink = document.querySelector('.main-menu-item.focus a');
+					if (focusedMenuLink) {
 						createConfirmationDialog({
 							message: Alpine.store('globals').CONFIRM_LEAVE_PAGE,
-							targetUrl: document.querySelector('.main-menu-item.focus a').href,
+							targetUrl: focusedMenuLink.href,
 						});
 					}
-				} else if (document.querySelector('dialog[open]')) {
-					const dialog = document.querySelector('dialog[open]');
-					dialog.querySelector('button[type="submit"]').click();
 				} else {
 					const element = document.querySelector(
 						'.js-units-container .js-unit.focus .shortcut-enter',

@@ -54,6 +54,9 @@ json_list() {
         "REDIRECT": "'$REDIRECT'",
         "REDIRECT_CODE": "'$REDIRECT_CODE'",
         "CUSTOM_DOCROOT": "'$CUSTOM_DOCROOT'",
+        "APP_TEMPLATE": "'$APP_TEMPLATE'",
+        "APP_ENTRY": "'$APP_ENTRY'",
+        "APP_STATUS": "'$APP_STATUS'",
         "SUSPENDED": "'$SUSPENDED'",
         "TIME": "'$TIME'",
         "DATE": "'$DATE'"

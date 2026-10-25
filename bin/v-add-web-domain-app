@@ -1,0 +1,145 @@
+#!/bin/bash
+# info: add Node.js or Python application to a web domain
+# options: USER DOMAIN TEMPLATE ENTRY [RESTART]
+#
+# example: v-add-web-domain-app admin example.com NODE-22 server.js
+# example: v-add-web-domain-app admin example.com PY-3_12 wsgi:app
+#
+# This function runs an application for a web domain, the same way a PHP-FPM
+# pool serves PHP. The code lives in /home/USER/web/DOMAIN/app, runs as USER
+# in a sandboxed systemd service and is served by nginx through a Unix socket.
+
+#----------------------------------------------------------#
+#                Variables & Functions                     #
+#----------------------------------------------------------#
+
+# Argument definition
+user=$1
+domain=$2
+app_template=$3
+app_entry=$4
+restart=$5
+
+# Includes
+# shellcheck source=/etc/hestiacp/hestia.conf
+source /etc/hestiacp/hestia.conf
+# shellcheck source=/usr/local/hestia/func/main.sh
+source $HESTIA/func/main.sh
+# shellcheck source=/usr/local/hestia/func/domain.sh
+source $HESTIA/func/domain.sh
+# shellcheck source=/usr/local/hestia/func/ip.sh
+source $HESTIA/func/ip.sh
+# shellcheck source=/usr/local/hestia/func/runtime.sh
+source $HESTIA/func/runtime.sh
+# load config file
+source_conf "$HESTIA/conf/hestia.conf"
+
+# Additional argument formatting
+format_domain
+format_domain_idn
+
+#----------------------------------------------------------#
+#                    Verifications                         #
+#----------------------------------------------------------#
+
+check_args '4' "$#" 'USER DOMAIN TEMPLATE ENTRY [RESTART]'
+is_format_valid 'user' 'domain' 'app_template' 'app_entry' 'restart'
+is_system_enabled "$WEB_SYSTEM" 'WEB_SYSTEM'
+is_object_valid 'user' 'USER' "$user"
+is_object_unsuspended 'user' 'USER' "$user"
+is_object_valid 'web' 'DOMAIN' "$domain"
+is_object_unsuspended 'web' 'DOMAIN' "$domain"
+if [ -n "$(get_web_app_value 'APP_TEMPLATE')" ]; then
+	check_result "$E_EXISTS" "$domain already runs an application"
+fi
+is_app_template_valid "$app_template"
+is_app_entry_valid "$app_entry"
+if [ -n "$PROXY_SYSTEM" ]; then
+	is_proxy_template_valid 'app-proxy'
+else
+	is_web_template_valid 'app-proxy'
+fi
+
+# Perform verification if read-only mode is enabled
+check_hestia_demo_mode
+
+#----------------------------------------------------------#
+#                       Action                             #
+#----------------------------------------------------------#
+
+prepare_web_app_paths
+
+# Application directory, owned by the user
+if [ ! -d "$app_dir" ]; then
+	$BIN/v-add-fs-directory "$user" "$app_dir"
+	check_result $? "Unable to create $app_dir" > /dev/null
+fi
+
+# Turn PHP off for this domain (keeps BACKEND set, like other scripts expect).
+# A per-user pool is shared with the user's other domains, so it is left alone;
+# prepare_web_app() routes this domain to the app socket either way.
+if [ -n "$WEB_BACKEND" ] && [ "$WEB_BACKEND_POOL" != 'user' ]; then
+	$BIN/v-change-web-domain-backend-tpl "$user" "$domain" 'no-php' 'no'
+	check_result $? "Unable to disable PHP for $domain" > /dev/null
+fi
+
+# Store application values before rebuilding, prepare_web_app() reads them
+add_object_key 'web' 'DOMAIN' "$domain" 'APP_TEMPLATE' 'TIME'
+add_object_key 'web' 'DOMAIN' "$domain" 'APP_ENTRY' 'TIME'
+add_object_key 'web' 'DOMAIN' "$domain" 'APP_STATUS' 'TIME'
+update_object_value 'web' 'DOMAIN' "$domain" '$APP_TEMPLATE' "$app_template"
+update_object_value 'web' 'DOMAIN' "$domain" '$APP_ENTRY' "$app_entry"
+update_object_value 'web' 'DOMAIN' "$domain" '$APP_STATUS' 'running'
+
+# Route the domain to the application socket
+get_domain_values 'web'
+local_ip=$(get_real_ip "$IP")
+if [ -n "$PROXY_SYSTEM" ]; then
+	del_web_config "$PROXY_SYSTEM" "$PROXY.tpl"
+	[ "$SSL" = 'yes' ] && del_web_config "$PROXY_SYSTEM" "$PROXY.stpl"
+	PROXY='app-proxy'
+	prepare_web_domain_values
+	add_web_config "$PROXY_SYSTEM" "$PROXY.tpl"
+	[ "$SSL" = 'yes' ] && add_web_config "$PROXY_SYSTEM" "$PROXY.stpl"
+	add_object_key 'web' 'DOMAIN' "$domain" 'PROXY' 'PROXY_EXT'
+	update_object_value 'web' 'DOMAIN' "$domain" '$PROXY' "$PROXY"
+else
+	del_web_config "$WEB_SYSTEM" "$TPL.tpl"
+	[ "$SSL" = 'yes' ] && del_web_config "$WEB_SYSTEM" "$TPL.stpl"
+	TPL='app-proxy'
+	prepare_web_domain_values
+	add_web_config "$WEB_SYSTEM" "$TPL.tpl"
+	[ "$SSL" = 'yes' ] && add_web_config "$WEB_SYSTEM" "$TPL.stpl"
+	update_object_value 'web' 'DOMAIN' "$domain" '$TPL' "$TPL"
+fi
+
+# Service, dependencies and first start
+add_web_app_unit "$app_template" "$app_entry"
+$BIN/v-update-web-domain-app-deps "$user" "$domain" > /dev/null 2>&1
+deps_result=$?
+if start_web_app; then
+	app_message="Application started."
+else
+	app_message="Application configured but not running yet, upload the code to $app_dir and restart it."
+fi
+
+#----------------------------------------------------------#
+#                       Hestia                             #
+#----------------------------------------------------------#
+
+# Restarting web server
+$BIN/v-restart-web "$restart"
+check_result $? "Web restart failed" > /dev/null
+$BIN/v-restart-proxy "$restart"
+check_result $? "Proxy restart failed" > /dev/null
+
+if [ "$deps_result" -ne 0 ]; then
+	app_message="$app_message Installing dependencies failed, run v-update-web-domain-app-deps for details."
+fi
+echo "$app_message"
+
+# Logging
+$BIN/v-log-action "$user" "Info" "Web" "Application added (Domain: $domain, Template: $app_template, Entry: $app_entry)."
+log_event "$OK" "$ARGUMENTS"
+
+exit

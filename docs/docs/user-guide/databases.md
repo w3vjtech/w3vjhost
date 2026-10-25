@@ -22,6 +22,20 @@ By default, **phpMyAdmin** and **phpPgAdmin** are accessible at `https://hostnam
 
 For MySQL databases, if **phpMyAdmin Single Sign On** is enabled, hovering a database will show an <i class="fas fa-fw fa-sign-in-alt"><span class="visually-hidden">phpMyAdmin</span></i> icon. Click it to login to **phpMyAdmin** directly.
 
+## NoSQL databases
+
+If MongoDB or Redis is installed and managed by Hestia, the **Databases** page also shows a separate NoSQL section. Create a named entry there and save the generated password immediately; passwords are shown only once, when an entry is created or its password is reset.
+
+- Only entries created through Hestia appear in this section. Existing MongoDB databases and Redis data are not imported automatically.
+- On existing Redis installations, an administrator must run `v-configure-sys-redis-acl` once before Redis namespaces can be managed. This command restarts Redis.
+- Check MongoDB Community's SSPL terms before offering it to hosting customers.
+- MongoDB entries have a dedicated database user with read/write access to that database only.
+- Redis entries use a dedicated ACL user restricted to a key prefix. They are namespaces, not separately created Redis database indexes; applications must use the displayed key prefix for their keys.
+- Both services listen on localhost. Applications on another server need an SSH tunnel to connect.
+- Deleting an entry permanently removes its MongoDB database or all Redis keys in its namespace, and removes its credentials.
+- NoSQL entries are **not included in Hestia user backups**. Back them up separately before relying on them.
+- NoSQL storage is not included in Hestia per-user disk usage or quotas. Redis memory limits apply server-wide.
+
 ## Suspending a database
 
 1. Hover over the database you want to suspend.

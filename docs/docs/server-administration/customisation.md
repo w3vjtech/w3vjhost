@@ -24,6 +24,18 @@ Changes to default themes are always overwritten during updates. Custom CSS file
 
 Please note that `default.css` base theme is always loaded. Other default and custom themes override the rules in this file.
 
+## W3VJHOST branding
+
+The W3VJHOST build keeps HestiaCP's internal paths, configuration keys, services, and CLI commands unchanged. The installer sets the existing `APP_NAME` setting to `W3VJHOST`, which is used in the panel title, login screen, and customer-facing email templates.
+
+The W3VJHOST logo and favicon defaults are shipped in `install/deb/branding`. The white-label logo updater applies those defaults when no custom asset exists and reapplies them after package updates. To use your own artwork, put the supported files in `/usr/local/hestia/web/images/custom/` and run:
+
+```bash
+/usr/local/hestia/bin/v-update-white-label-logo
+```
+
+Supported files are `logo.svg`, `logo.png`, `logo-header.svg`, `favicon.png`, and `favicon.ico`. Existing custom assets take precedence over the W3VJHOST defaults. Keep the HestiaCP attribution and GPLv3 license information accessible when distributing a modified build.
+
 ## Customising the _Domain not found_ page
 
 The _Domain not found_ page is located in `/var/www/html/index.html`. You can edit it using the following command:

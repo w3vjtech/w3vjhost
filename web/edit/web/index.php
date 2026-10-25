@@ -88,6 +88,7 @@ if (empty($v_nginx_cache_duration)) {
 }
 $v_proxy = $data[$v_domain]["PROXY"];
 $v_proxy_template = $data[$v_domain]["PROXY"];
+$v_app_template = $data[$v_domain]["APP_TEMPLATE"] ?? "";
 $v_proxy_ext = str_replace(",", ", ", $data[$v_domain]["PROXY_EXT"]);
 $v_stats = $data[$v_domain]["STATS"];
 $v_stats_user = $data[$v_domain]["STATS_USER"];
@@ -310,9 +311,12 @@ if (!empty($_POST["save"]) && $read_only !== true) {
 		}
 	}
 
+	// Domains running a Node.js / Python application keep their app templates,
+	// they are changed with v-change-web-domain-app-tpl instead
 	if (
-		$_SESSION["POLICY_USER_EDIT_WEB_TEMPLATES"] == "yes" ||
-		$_SESSION["userContext"] === "admin"
+		($_SESSION["POLICY_USER_EDIT_WEB_TEMPLATES"] == "yes" ||
+			$_SESSION["userContext"] === "admin") &&
+		empty($v_app_template)
 	) {
 		// Change template
 		if ($v_template != $_POST["v_template"] && empty($_SESSION["error_msg"])) {

@@ -28,9 +28,20 @@ export function updateAdvancedTextarea() {
 
 	textInputs.forEach((textInput) => {
 		const search = textInput.dataset.regexp;
-		const prevValue = textInput.dataset.prevValue;
+		if (!search) {
+			return;
+		}
+		const prevValue = textInput.dataset.prevValue ?? '';
 		textInput.setAttribute('data-prev-value', textInput.value);
-		const regexp = new RegExp(`(${search})(.+)(${prevValue})`);
-		advancedTextarea.value = advancedTextarea.value.replace(regexp, `$1$2${textInput.value}`);
+		// Values are user input: escape them, and use a replacer function so "$" is literal
+		const regexp = new RegExp(`(${escapeRegExp(search)})(.+)(${escapeRegExp(prevValue)})`);
+		advancedTextarea.value = advancedTextarea.value.replace(
+			regexp,
+			(_match, key, middle) => `${key}${middle}${textInput.value}`,
+		);
 	});
+}
+
+function escapeRegExp(value) {
+	return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }

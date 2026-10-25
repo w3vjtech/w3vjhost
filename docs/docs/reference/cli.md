@@ -7786,6 +7786,6 @@ This function for obtaining updated web (Nginx/Apache2/PHP) templates from the H
 
 update white label logo's
 
-**Options**: `[DOWNLOAD]`
+**Options**: `[DOWNLOAD]` `[RESET]`
 
-Replace Hestia logos with User created logo's
+Apply user-provided logos when present; otherwise apply the shipped W3VJHOST logo and favicon defaults. The `DOWNLOAD` argument is retained for compatibility. Set `RESET` to `yes` to remove custom logo files before applying defaults.

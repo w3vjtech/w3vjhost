@@ -67,7 +67,7 @@ csv_list() {
 
 # Parsing templates
 templates=$(ls -v $WEBTPL/$WEB_SYSTEM/$WEB_BACKEND/)
-templates=$(echo "$templates" | grep '\.tpl' | sed 's/\.tpl$//')
+templates=$(echo "$templates" | grep '\.tpl' | sed 's/\.tpl$//' | grep -vx app-proxy)
 
 # Listing data
 case $format in

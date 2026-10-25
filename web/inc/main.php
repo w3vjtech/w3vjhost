@@ -263,16 +263,16 @@ function show_alert_message($data) {
 	if (!empty($data["error_msg"])) {
 		$msgIcon = "fa-circle-exclamation";
 		$msgText = htmlentities($data["error_msg"]);
-		$msgClass = "inline-alert-danger";
+		$msgClass = "inline-alert-danger border-red-200 bg-red-50 text-red-800";
 	} elseif (!empty($data["ok_msg"])) {
 		$msgIcon = "fa-circle-check";
 		$msgText = $data["ok_msg"];
-		$msgClass = "inline-alert-success";
+		$msgClass = "inline-alert-success border-green-200 bg-green-50 text-green-800";
 	}
 
 	if (!empty($msgText)) {
 		printf(
-			'<div class="inline-alert %s u-mb20" role="alert"><i class="fas %s"></i><p>%s</p></div>',
+			'<div class="inline-alert %s u-mb20 mb-[20px] flex items-start gap-2 rounded-lg border p-4 text-sm [&_a]:underline" role="alert"><i class="fas %s mt-0.5"></i><p>%s</p></div>',
 			$msgClass,
 			$msgIcon,
 			$msgText,
@@ -596,6 +596,40 @@ function backendtpl_with_webdomains() {
 		}
 	}
 	return $backend_list;
+}
+
+// Human readable name of an application template: NODE-22 -> "Node.js 22", PY-3_12 -> "Python 3.12"
+function app_template_label($template) {
+	if (preg_match('/^NODE-(\d+)$/', $template, $m)) {
+		return "Node.js " . $m[1];
+	}
+	if (preg_match('/^PY-(\d+)_(\d+)$/', $template, $m)) {
+		return "Python " . $m[1] . "." . $m[2];
+	}
+	return $template;
+}
+
+function apptpl_with_webdomains() {
+	exec(HESTIA_CMD . "v-list-users json", $output, $return_var);
+	$users = json_decode(implode("", $output), true);
+	unset($output);
+
+	$app_list = [];
+	foreach ($users as $user => $user_details) {
+		exec(
+			HESTIA_CMD . "v-list-web-domains " . quoteshellarg($user) . " json",
+			$output,
+			$return_var,
+		);
+		$domains = json_decode(implode("", $output), true);
+		unset($output);
+		foreach ($domains as $domain => $domain_details) {
+			if (!empty($domain_details["APP_TEMPLATE"])) {
+				$app_list[$domain_details["APP_TEMPLATE"]][$user][] = $domain;
+			}
+		}
+	}
+	return $app_list;
 }
 /**
  * Check if password is valid

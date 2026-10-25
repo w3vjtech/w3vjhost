@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 108 58" width="54" height="29"><title>W3VJHOST logo</title>
+  <defs>
+    <linearGradient id="w3vj-hdr" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#1d4ed8"/>
+      <stop offset="1" stop-color="#06b6d4"/>
+    </linearGradient>
+  </defs>
+  <rect x="25" y="1" width="58" height="56" rx="13" fill="#fff"/>
+  <rect x="28" y="4" width="52" height="50" rx="11" fill="url(#w3vj-hdr)"/>
+  <path d="M37 18 L44 41 L54 24 L64 41 L71 18" fill="none" stroke="#fff" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

@@ -1,0 +1,59 @@
+#=========================================================================#
+# W3VJ Application Template (Node.js / Python)                            #
+# DO NOT MODIFY THIS FILE! CHANGES WILL BE LOST WHEN REBUILDING DOMAINS   #
+# https://hestiacp.com/docs/server-administration/web-templates.html      #
+#=========================================================================#
+
+server {
+	listen      %ip%:%web_ssl_port% ssl;
+	server_name %domain_idn% %alias_idn%;
+	root        %sdocroot%;
+	access_log  /var/log/%web_system%/domains/%domain%.log combined;
+	access_log  /var/log/%web_system%/domains/%domain%.bytes bytes;
+	error_log   /var/log/%web_system%/domains/%domain%.error.log error;
+
+	ssl_certificate     %ssl_pem%;
+	ssl_certificate_key %ssl_key%;
+	#Commented out ssl_stapling directives due to Lets Encrypt ending OCSP support in 2025
+	#ssl_stapling        on;
+	#ssl_stapling_verify on;
+
+	# TLS 1.3 0-RTT anti-replay
+	if ($anti_replay = 307) { return 307 https://$host$request_uri; }
+	if ($anti_replay = 425) { return 425; }
+
+	include %home%/%user%/conf/web/%domain%/nginx.hsts.conf*;
+
+	location ~ /\.(?!well-known\/) {
+		deny all;
+		return 404;
+	}
+
+	location / {
+		client_max_body_size 512M;
+
+		proxy_http_version 1.1;
+		proxy_read_timeout 120;
+		proxy_redirect     off;
+
+		proxy_set_header Host              $http_host;
+		proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+		proxy_set_header X-Forwarded-Proto $scheme;
+		proxy_set_header X-Real-IP         $remote_addr;
+		proxy_set_header Upgrade           $http_upgrade;
+		proxy_set_header Connection        $http_connection;
+
+		proxy_pass http://%backend_lsnr%:;
+	}
+
+	location /error/ {
+		alias %home%/%user%/web/%domain%/document_errors/;
+	}
+
+	location /vstats/ {
+		alias   %home%/%user%/web/%domain%/stats/;
+		include %home%/%user%/web/%domain%/stats/auth.conf*;
+	}
+
+	include %home%/%user%/conf/web/%domain%/nginx.ssl.conf_*;
+}

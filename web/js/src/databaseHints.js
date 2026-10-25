@@ -38,6 +38,7 @@ function updateHint(input) {
 
 	if (input.value.trim() === '') {
 		hintElement.textContent = '';
+		return;
 	}
 
 	hintElement.textContent = Alpine.store('globals').USER_PREFIX + input.value;

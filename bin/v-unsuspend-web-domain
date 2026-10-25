@@ -85,6 +85,16 @@ if [ -n "$WEB_BACKEND" ]; then
 	$BIN/v-add-web-domain-backend $user $domain $template $restart
 fi
 
+# Starting Node.js / Python application when it was running before suspend
+# shellcheck source=/usr/local/hestia/func/runtime.sh
+source $HESTIA/func/runtime.sh
+prepare_web_app_paths
+if [ -f "/etc/systemd/system/$app_unit" ]; then
+	if [ "$(get_web_app_value 'APP_STATUS')" = 'running' ]; then
+		start_web_app || echo "WARNING: Application of $domain failed to start after unsuspend."
+	fi
+fi
+
 #----------------------------------------------------------#
 #                       Hestia                             #
 #----------------------------------------------------------#
